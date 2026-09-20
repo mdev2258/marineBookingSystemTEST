@@ -15,21 +15,18 @@ export function formatPenceShort(pence: number): string {
     : formatPence(pence);
 }
 
-export function totalPence(partySize: number, pricePerPersonPence: number): number {
-  return partySize * pricePerPersonPence;
-}
-
 /**
- * The deposit is computed exactly once, at booking creation, and then frozen on
- * the row. It is never recomputed -- so it survives a later price change and it
- * transfers unchanged when a booking is rebooked onto a different session.
+ * The deposit is computed exactly once, at the moment the customer ACCEPTS the
+ * quote, and then frozen on the row. It is never recomputed -- so it survives a
+ * later re-quote and it transfers unchanged when a job is rebooked onto a
+ * different slot.
+ *
+ * Note it is keyed off the agreed quote, not a list price. Every job here is
+ * priced on the boat, so until the quote is accepted there is no deposit to
+ * speak of and depositPence on the row is null.
  */
-export function depositPence(
-  partySize: number,
-  pricePerPersonPence: number,
-  depositPercent: number,
-): number {
-  return Math.round((depositPercent / 100) * partySize * pricePerPersonPence);
+export function depositPence(quotedPence: number, depositPercent: number): number {
+  return Math.round((depositPercent / 100) * quotedPence);
 }
 
 export function balancePence(total: number, deposit: number): number {

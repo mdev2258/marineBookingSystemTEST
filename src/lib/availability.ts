@@ -3,22 +3,27 @@ import { prisma } from '@/lib/prisma';
 import { CAPACITY_CONSUMING_STATUSES } from '@/lib/enums';
 
 /**
- * THE capacity predicate. Every surface that shows "spaces left" -- the public
- * list, the booking form, the admin day view, the rebook picker, and the
- * last-seat re-check inside createPendingBooking -- resolves it through here.
- * There is exactly one definition of an occupied seat in this codebase.
+ * THE capacity predicate. Every surface that shows how full a slot is -- the
+ * public slot list, the booking form, the admin day view, the rebook picker,
+ * and the last-place re-check before a job is scheduled -- resolves it through
+ * here. There is exactly one definition of an occupied place in this codebase.
  *
- *   occupied  =  status in (paid, attended, no_show)
+ *   occupied  =  status in (paid, completed, no_show)
  *                OR (status = pending_payment AND expiresAt > now)
  *
- * cancelled, expired and awaiting_rebook never consume capacity.
- * (awaiting_rebook belongs to a session that was cancelled, so by definition it
- * is not occupying a live one.)
+ * One booking is one vessel, so a place is counted per row rather than summed:
+ * a crane lifts one boat at a time whatever the owner brings with them.
  *
- * Note the time predicate is inside the query, not a background job: a seat is
+ * enquiry and quoted are deliberately NOT occupying. A customer who asks for a
+ * price and never replies must not hold a crane slot open indefinitely.
+ * cancelled, declined, expired and awaiting_rebook never consume capacity
+ * either (awaiting_rebook belongs to a slot that was cancelled, so by
+ * definition it is not occupying a live one).
+ *
+ * Note the time predicate is inside the query, not a background job: a place is
  * free the instant its hold lapses, even if no webhook and no cron ever fire.
  */
-export function occupiedSeatWhere(now: Date = new Date()): Prisma.BookingWhereInput {
+export function occupiedPlaceWhere(now: Date = new Date()): Prisma.BookingWhereInput {
   return {
     OR: [
       { status: { in: [...CAPACITY_CONSUMING_STATUSES] } },
@@ -27,20 +32,18 @@ export function occupiedSeatWhere(now: Date = new Date()): Prisma.BookingWhereIn
   };
 }
 
-/** Seats taken on one session. */
-export async function seatsTaken(sessionId: string, now: Date = new Date()): Promise<number> {
-  const agg = await prisma.booking.aggregate({
-    where: { sessionId, ...occupiedSeatWhere(now) },
-    _sum: { partySize: true },
+/** Places taken in one slot. */
+export async function placesTaken(sessionId: string, now: Date = new Date()): Promise<number> {
+  return prisma.booking.count({
+    where: { sessionId, ...occupiedPlaceWhere(now) },
   });
-  return agg._sum.partySize ?? 0;
 }
 
 /**
- * Seats taken across many sessions in one round trip. Use this on list screens;
- * calling seatsTaken() in a loop is an N+1 and it shows on the day view.
+ * Places taken across many slots in one round trip. Use this on list screens;
+ * calling placesTaken() in a loop is an N+1 and it shows on the day view.
  */
-export async function seatsTakenBySession(
+export async function placesTakenBySession(
   sessionIds: string[],
   now: Date = new Date(),
 ): Promise<Map<string, number>> {
@@ -49,11 +52,13 @@ export async function seatsTakenBySession(
 
   const rows = await prisma.booking.groupBy({
     by: ['sessionId'],
-    where: { sessionId: { in: sessionIds }, ...occupiedSeatWhere(now) },
-    _sum: { partySize: true },
+    where: { sessionId: { in: sessionIds }, ...occupiedPlaceWhere(now) },
+    _count: { _all: true },
   });
 
-  for (const row of rows) map.set(row.sessionId, row._sum.partySize ?? 0);
+  for (const row of rows) {
+    if (row.sessionId) map.set(row.sessionId, row._count._all);
+  }
   return map;
 }
 
@@ -61,24 +66,23 @@ export function spacesLeftFrom(capacity: number, taken: number): number {
   return Math.max(0, capacity - taken);
 }
 
-/** Spaces left on one session, straight from the database. */
+/** Places left in one slot, straight from the database. */
 export async function spacesLeft(
   session: { id: string; capacity: number },
   now: Date = new Date(),
 ): Promise<number> {
-  return spacesLeftFrom(session.capacity, await seatsTaken(session.id, now));
+  return spacesLeftFrom(session.capacity, await placesTaken(session.id, now));
 }
 
 /**
- * The last-seat re-check. Called immediately before the Booking insert in
- * createPendingBooking. Deliberately not locked -- an unlucky simultaneous
- * double-book is acceptable for a demo, and a SQLite transaction would not
- * survive the move to Postgres unchanged anyway.
+ * The last-place re-check. Called immediately before a job is scheduled into a
+ * slot. Deliberately not locked -- an unlucky simultaneous double-book is
+ * acceptable for a demo, and a SQLite transaction would not survive the move to
+ * Postgres unchanged anyway.
  */
-export async function hasRoomFor(
+export async function hasRoom(
   session: { id: string; capacity: number },
-  partySize: number,
   now: Date = new Date(),
 ): Promise<boolean> {
-  return (await spacesLeft(session, now)) >= partySize;
+  return (await spacesLeft(session, now)) >= 1;
 }

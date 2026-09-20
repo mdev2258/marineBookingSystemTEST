@@ -10,6 +10,14 @@
 // The provider below is NOT env-swappable (Prisma 6 disallows env() here).
 // Deploying to Postgres = set DATABASE_URL *and* change this one line.
 // See README > Deploying to Vercel.
+//
+// DOMAIN NOTE: this models a marine SERVICES yard -- liftouts, surveys,
+// inspections, rigging, shipwright work. The model names (Session, Booking,
+// SessionType) are deliberately domain-neutral and are NOT renamed to
+// Slot/Job/Service: they were chosen generic so the same code serves a
+// different trade, and renaming them buys nothing but a very large diff.
+// Read them as: SessionType = a service offered, Session = a bookable slot in
+// the yard diary, Booking = one job on one vessel.
 
 generator client {
   provider = "prisma-client-js"
@@ -34,23 +42,31 @@ model Operator {
   sessionTypes SessionType[]
   sessions     Session[]
   customers    Customer[]
+  vessels      Vessel[]
   bookings     Booking[]
 }
 
-/// The lookup table that keeps this app non-sailing-specific.
-/// Swap the rows and it is a RIB charter or paddleboard hire: no code changes.
+/// A service the yard offers: liftout, pre-purchase survey, rig inspection.
+/// Swap the rows and this is a different trade; no code changes.
+///
+/// There is no default price. Every job here is quoted on the boat, so price
+/// lives on the Booking once the yard has seen what it is dealing with.
 model SessionType {
-  id                String  @id @default(cuid())
-  operatorId        String
-  name              String
-  slug              String
-  description       String?
-  durationMinutes   Int
-  defaultCapacity   Int
-  defaultPricePence Int
-  depositPercent    Int     @default(50)
-  active            Boolean @default(true)
-  sortOrder         Int     @default(0)
+  id              String  @id @default(cuid())
+  operatorId      String
+  name            String
+  slug            String
+  description     String?
+  durationMinutes Int
+  /// How many vessels the yard can take in one slot. Usually 1 -- a crane does
+  /// one boat at a time -- but a surveyor's day might hold several.
+  defaultCapacity Int     @default(1)
+  /// Percentage of the agreed quote taken to confirm the booking.
+  depositPercent  Int     @default(50)
+  /// Some work is scheduled against a tide window rather than a clock.
+  tideDependent   Boolean @default(false)
+  active          Boolean @default(true)
+  sortOrder       Int     @default(0)
 
   operator Operator  @relation(fields: [operatorId], references: [id])
   sessions Session[]
@@ -58,22 +74,21 @@ model SessionType {
   @@unique([operatorId, slug])
 }
 
-/// A bookable instance. capacity and pricePerPersonPence are SNAPSHOTTED from
-/// the SessionType defaults at creation, then independently editable.
-/// Never read price through the relation at booking time.
+/// A bookable slot in the yard diary. capacity is SNAPSHOTTED from the
+/// service's default at creation, then independently editable.
 model Session {
-  id                  String   @id @default(cuid())
-  operatorId          String
-  sessionTypeId       String
-  startsAt            DateTime
-  endsAt              DateTime
-  capacity            Int
-  pricePerPersonPence Int
+  id            String   @id @default(cuid())
+  operatorId    String
+  sessionTypeId String
+  startsAt      DateTime
+  endsAt        DateTime
+  capacity      Int
   /// scheduled | cancelled
-  status              String   @default("scheduled")
-  notes               String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  status        String   @default("scheduled")
+  /// e.g. "HW Lymington 11:20" -- shown to the customer on a tidal slot.
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   operator     Operator             @relation(fields: [operatorId], references: [id])
   sessionType  SessionType          @relation(fields: [sessionTypeId], references: [id])
@@ -94,32 +109,75 @@ model Customer {
   createdAt  DateTime @default(now())
 
   operator Operator  @relation(fields: [operatorId], references: [id])
+  vessels  Vessel[]
   bookings Booking[]
 
   @@unique([operatorId, email])
 }
 
-/// The centre of the model.
+/// The boat. A yard talks about the vessel first and the owner second, and the
+/// same owner routinely has more than one.
+model Vessel {
+  id           String   @id @default(cuid())
+  operatorId   String
+  customerId   String
+  name         String
+  /// Length overall. Drives the crane strop setup and most of the quote.
+  lengthMetres Float?
+  /// "Westerly Konsort", "Fairline Targa 34"
+  make         String?
+  /// Fin, bilge, long -- the yard needs this before it lifts anything.
+  keelType     String?
+  /// "Pontoon C, berth 14" or "Ashore, yard row 3"
+  berth        String?
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  operator Operator  @relation(fields: [operatorId], references: [id])
+  customer Customer  @relation(fields: [customerId], references: [id])
+  bookings Booking[]
+
+  @@index([customerId])
+}
+
+/// One job, on one vessel. The centre of the model.
+///
+/// A job arrives one of two ways and the difference is whether sessionId is
+/// set at creation:
+///   * the customer books a published slot  -> sessionId set, status 'enquiry'
+///   * the customer requests work           -> sessionId null, status 'enquiry'
+/// Either way the yard quotes it, the customer accepts, and only then is there
+/// a deposit to pay.
 model Booking {
   id         String @id @default(cuid())
   /// Human-readable, e.g. HS-7QK2ND. Used in emails and as the public URL key.
   reference  String @unique
   operatorId String
-  sessionId  String
+  /// NULL until the yard schedules it. An unscheduled job is a real job.
+  sessionId  String?
   customerId String
+  vesselId   String
 
-  partySize           Int
-  /// Snapshot of Session.pricePerPersonPence at the moment of booking.
-  pricePerPersonPence Int
-  totalPence          Int
-  /// Math.round(depositPercent/100 * partySize * pricePerPersonPence).
-  /// Computed once at creation, never recomputed -- it survives a price change
-  /// and it survives a rebook onto a differently-priced session.
-  depositPence        Int
+  /// What the customer said they wanted, in their words.
+  requestNotes String?
 
-  /// pending_payment | paid | expired | cancelled | awaiting_rebook | attended | no_show
-  status    String    @default("pending_payment")
-  /// When a pending_payment hold stops consuming capacity. Mirrors Stripe
+  /// The quote. NULL until the yard has priced the job -- this is why
+  /// depositPence is nullable too, and why nothing may assume a price exists.
+  quotedPence Int?
+  quotedAt    DateTime?
+  /// Free text shown with the quote: what is and is not included.
+  quoteNotes  String?
+  acceptedAt  DateTime?
+
+  /// Math.round(depositPercent/100 * quotedPence), computed ONCE when the
+  /// customer accepts the quote and never recomputed. It survives a later
+  /// re-quote and it transfers unchanged when a job is rebooked onto a new slot.
+  depositPence Int?
+
+  /// enquiry | quoted | declined | pending_payment | paid | expired
+  /// | cancelled | awaiting_rebook | completed | no_show
+  status    String    @default("enquiry")
+  /// When a pending_payment hold stops consuming a slot. Mirrors Stripe
   /// Checkout expires_at (30 min, Stripe's minimum).
   expiresAt DateTime?
 
@@ -127,16 +185,22 @@ model Booking {
   stripePaymentIntentId   String?   @unique
   paidAt                  DateTime?
 
+  /// Work done, or the boat was not there / not ready.
+  completedAt        DateTime?
   attendanceMarkedAt DateTime?
   cancelledAt        DateTime?
 
-  /// Single-use token emailed to the customer when their session is cancelled.
+  /// Single-use token emailed to the customer when their slot is cancelled.
   rebookToken           String?   @unique
-  /// Set when this row was MOVED off a cancelled session onto a new one.
+  /// Set when this row was MOVED off a cancelled slot onto a new one.
   rebookedFromSessionId String?
   rebookedAt            DateTime?
 
-  /// Lives here, not on Session: reminders are per-booking.
+  /// Single-use token emailed with a quote, so the customer can accept it
+  /// without an account. Cleared the moment it is spent.
+  quoteToken String? @unique
+
+  /// Lives here, not on Session: reminders are per-job.
   reminderSentAt DateTime?
 
   notes     String?
@@ -144,12 +208,14 @@ model Booking {
   updatedAt DateTime @updatedAt
 
   operator  Operator   @relation(fields: [operatorId], references: [id])
-  session   Session    @relation(fields: [sessionId], references: [id])
+  session   Session?   @relation(fields: [sessionId], references: [id])
   customer  Customer   @relation(fields: [customerId], references: [id])
+  vessel    Vessel     @relation(fields: [vesselId], references: [id])
   emailLogs EmailLog[]
 
   @@index([sessionId, status])
   @@index([customerId])
+  @@index([status, createdAt])
 }
 
 model SessionCancellation {
@@ -171,18 +237,19 @@ model SessionCancellation {
 model EmailLog {
   id String @id @default(cuid())
 
-  /// booking_confirmation | cancellation | rebook_confirmation | reminder | contact_form
+  /// enquiry_received | quote | booking_confirmation | cancellation
+  /// | rebook_confirmation | reminder | contact_form
   type String
   /// The customer's real address (what we intended).
-  toEmail    String
+  toEmail     String
   /// Where it actually went (DEMO_EMAIL_REDIRECT, if set).
   deliveredTo String
-  subject    String
+  subject     String
   /// sent | failed
-  status     String
+  status      String
   /// Resend message id, or 'local-dev' when running without RESEND_API_KEY.
-  providerId String?
-  error      String?
+  providerId  String?
+  error       String?
 
   bookingId  String?
   sessionId  String?

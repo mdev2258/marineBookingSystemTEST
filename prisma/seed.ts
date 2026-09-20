@@ -1,10 +1,9 @@
 /**
- * Demo seed.
+ * Demo seed — Harbourside Marine, a services yard.
  *
  * Everything is positioned relative to "now" in Europe/London at run time --
- * there is not a single hardcoded date in here. Re-seed on the morning of a
- * demo and the day view is populated for that day, not for the day this was
- * written.
+ * there is not a single hardcoded date in here. Re-seed shortly before a demo
+ * and the diary is populated for that day, not for the day this was written.
  *
  * Re-runnable: every table is cleared first, in FK-safe order.
  *
@@ -17,19 +16,20 @@
 import { PrismaClient } from '@prisma/client';
 // Relative imports, not the "@/" alias: tsx runs this outside Next's resolver.
 import { addDays, londonDateTimeToUtc, todayInLondon } from '../src/lib/time';
-import { depositPence, totalPence } from '../src/lib/money';
+import { depositPence } from '../src/lib/money';
 import { generateBookingReference, generateRebookToken } from '../src/lib/reference';
 
 const prisma = new PrismaClient();
 
-const TYPE = {
-  dinghy: 'rya-level-1-dinghy',
-  keelboat: 'keelboat-taster',
-  rib: 'sunset-rib-blast',
-  paddleboard: 'paddleboard-hire',
+const SERVICE = {
+  liftout: 'liftout-and-pressure-wash',
+  liftin: 'lift-in-and-rig-check',
+  survey: 'pre-purchase-survey',
+  rig: 'rig-inspection',
+  shipwright: 'shipwright-hull-repair',
 } as const;
 
-type TypeSlug = (typeof TYPE)[keyof typeof TYPE];
+type ServiceSlug = (typeof SERVICE)[keyof typeof SERVICE];
 
 const CUSTOMERS = [
   { name: 'Alice Fenwick', phone: '07700 900012' },
@@ -52,131 +52,174 @@ const CUSTOMERS = [
   { name: 'Joe Ballantyne', phone: '07700 900353' },
 ];
 
+/** owner is an index into CUSTOMERS. Two owners deliberately have two boats. */
+const VESSELS = [
+  { owner: 0, name: 'Kittiwake', make: 'Westerly Konsort', lengthMetres: 8.8, keelType: 'Bilge', berth: 'Pontoon C, berth 14' },
+  { owner: 1, name: 'Morning Tide', make: 'Sadler 32', lengthMetres: 9.7, keelType: 'Fin', berth: 'Pontoon A, berth 3' },
+  { owner: 2, name: 'Bramble', make: 'Contessa 32', lengthMetres: 9.8, keelType: 'Long', berth: 'Ashore, yard row 2' },
+  { owner: 3, name: 'Osprey', make: 'Moody 36', lengthMetres: 10.9, keelType: 'Fin', berth: 'Pontoon D, berth 21' },
+  { owner: 4, name: 'Solent Mist', make: 'Jeanneau Sun Odyssey 349', lengthMetres: 10.3, keelType: 'Fin', berth: 'Pontoon B, berth 8' },
+  { owner: 5, name: 'Perseverance', make: 'Hallberg-Rassy 34', lengthMetres: 10.4, keelType: 'Long', berth: 'Pontoon A, berth 11' },
+  { owner: 6, name: 'Halcyon', make: 'Bavaria 38', lengthMetres: 11.5, keelType: 'Fin', berth: 'Pontoon D, berth 2' },
+  { owner: 7, name: 'Windflower', make: 'Fairline Targa 34', lengthMetres: 10.6, keelType: 'Planing', berth: 'Pontoon E, berth 5' },
+  { owner: 8, name: 'Gannet', make: 'Dufour 375', lengthMetres: 11.2, keelType: 'Fin', berth: 'Pontoon B, berth 19' },
+  { owner: 9, name: 'Teal', make: 'Westerly Griffon', lengthMetres: 8.2, keelType: 'Bilge', berth: 'Ashore, yard row 4' },
+  { owner: 10, name: 'Cormorant', make: 'Princess 42', lengthMetres: 12.8, keelType: 'Planing', berth: 'Pontoon E, berth 1' },
+  { owner: 11, name: 'Mistral', make: 'Beneteau Oceanis 34', lengthMetres: 10.2, keelType: 'Lifting', berth: 'Pontoon C, berth 7' },
+  { owner: 12, name: 'Puffin', make: 'Cornish Crabber 24', lengthMetres: 7.3, keelType: 'Long', berth: 'Swinging mooring 12' },
+  { owner: 13, name: 'Whimbrel', make: 'Rustler 36', lengthMetres: 11.0, keelType: 'Long', berth: 'Pontoon A, berth 17' },
+  { owner: 14, name: 'Redshank', make: 'Hanse 345', lengthMetres: 10.4, keelType: 'Fin', berth: 'Pontoon D, berth 9' },
+  { owner: 15, name: 'Curlew', make: 'Nicholson 32', lengthMetres: 9.8, keelType: 'Long', berth: 'Ashore, yard row 1' },
+  { owner: 16, name: 'Shearwater', make: 'Southerly 110', lengthMetres: 11.2, keelType: 'Lifting', berth: 'Pontoon B, berth 4' },
+  { owner: 17, name: 'Sea Urchin', make: 'Cobra 850', lengthMetres: 8.5, keelType: 'Fin', berth: 'Swinging mooring 6' },
+  // Second boats.
+  { owner: 0, name: 'Little Auk', make: 'Drascombe Lugger', lengthMetres: 5.7, keelType: 'Lifting', berth: 'Dinghy park 22' },
+  { owner: 10, name: 'Gadwall', make: 'Nordhavn 40', lengthMetres: 12.2, keelType: 'Displacement', berth: 'Pontoon E, berth 3' },
+];
+
 /** All @example.com, so a stray send with no DEMO_EMAIL_REDIRECT still cannot reach anyone. */
 function emailFor(name: string): string {
   return `${name.toLowerCase().replace(/[^a-z ]/g, '').split(' ').join('.')}@example.com`;
 }
 
-/**
- * A session to create. `key` is how the booking table below refers back to it.
- * `offset` is days from today in London; `time` is a London wall clock.
- */
-type SessionSpec = {
-  key: string;
-  offset: number;
-  time: string;
-  type: TypeSlug;
-};
+type SessionSpec = { key: string; offset: number; time: string; service: ServiceSlug; notes?: string };
 
 const SESSIONS: SessionSpec[] = [
   // ---- Past. Gaps at -9, -6, -4 and -2 so the day view has believable empty days.
-  { key: 'p10a', offset: -10, time: '09:30', type: TYPE.dinghy },
-  { key: 'p10b', offset: -10, time: '13:30', type: TYPE.keelboat },
-  { key: 'p8a', offset: -8, time: '09:30', type: TYPE.dinghy },
-  { key: 'p8b', offset: -8, time: '17:30', type: TYPE.rib },
-  { key: 'p7a', offset: -7, time: '13:30', type: TYPE.paddleboard },
-  { key: 'p5a', offset: -5, time: '09:30', type: TYPE.dinghy },
-  { key: 'cancelled', offset: -5, time: '13:30', type: TYPE.keelboat },
-  { key: 'p5c', offset: -5, time: '17:30', type: TYPE.rib },
-  { key: 'p3a', offset: -3, time: '09:30', type: TYPE.keelboat },
-  { key: 'p3b', offset: -3, time: '17:30', type: TYPE.rib },
-  { key: 'p1a', offset: -1, time: '09:30', type: TYPE.dinghy },
-  { key: 'p1b', offset: -1, time: '13:30', type: TYPE.paddleboard },
+  { key: 'p10a', offset: -10, time: '08:30', service: SERVICE.liftout, notes: 'HW Lymington 09:10' },
+  { key: 'p10b', offset: -10, time: '13:00', service: SERVICE.survey },
+  { key: 'p8a', offset: -8, time: '09:00', service: SERVICE.rig },
+  { key: 'p8b', offset: -8, time: '14:00', service: SERVICE.liftout, notes: 'HW Lymington 14:40' },
+  { key: 'p7a', offset: -7, time: '08:00', service: SERVICE.shipwright },
+  { key: 'p5a', offset: -5, time: '09:30', service: SERVICE.liftout, notes: 'HW Lymington 10:05' },
+  { key: 'cancelled', offset: -5, time: '13:30', service: SERVICE.liftin, notes: 'HW Lymington 14:15' },
+  { key: 'p5c', offset: -5, time: '15:00', service: SERVICE.rig },
+  { key: 'p3a', offset: -3, time: '09:00', service: SERVICE.survey },
+  { key: 'p3b', offset: -3, time: '14:30', service: SERVICE.liftout, notes: 'HW Lymington 15:20' },
+  { key: 'p1a', offset: -1, time: '08:30', service: SERVICE.liftin, notes: 'HW Lymington 09:00' },
+  { key: 'p1b', offset: -1, time: '13:00', service: SERVICE.rig },
 
-  // ---- Today. t0a is the one marked live in front of the prospect.
-  { key: 't0a', offset: 0, time: '09:30', type: TYPE.dinghy },
-  { key: 't0b', offset: 0, time: '13:30', type: TYPE.keelboat },
-  { key: 't0c', offset: 0, time: '17:30', type: TYPE.rib },
+  // ---- Today. t0a is the one marked off in front of the prospect.
+  { key: 't0a', offset: 0, time: '08:30', service: SERVICE.liftout, notes: 'HW Lymington 09:15' },
+  { key: 't0b', offset: 0, time: '11:00', service: SERVICE.survey },
+  { key: 't0c', offset: 0, time: '15:00', service: SERVICE.rig },
 
   // ---- Future. +1 is deliberately un-reminded so "Send reminders now" does something.
-  { key: 'f1a', offset: 1, time: '09:30', type: TYPE.dinghy },
-  { key: 'f1b', offset: 1, time: '13:30', type: TYPE.keelboat },
-  { key: 'f2a', offset: 2, time: '17:30', type: TYPE.rib },
-  { key: 'f3a', offset: 3, time: '09:30', type: TYPE.dinghy }, // 5/6 -> "1 space left"
-  { key: 'f4a', offset: 4, time: '13:30', type: TYPE.paddleboard }, // completely empty
-  { key: 'f6a', offset: 6, time: '09:30', type: TYPE.keelboat }, // rebook target
-  { key: 'f7a', offset: 7, time: '17:30', type: TYPE.rib },
-  { key: 'f9a', offset: 9, time: '09:30', type: TYPE.dinghy }, // holds a live pending_payment
-  { key: 'f11a', offset: 11, time: '13:30', type: TYPE.keelboat },
+  { key: 'f1a', offset: 1, time: '08:00', service: SERVICE.liftout, notes: 'HW Lymington 08:35' },
+  { key: 'f1b', offset: 1, time: '13:00', service: SERVICE.shipwright },
+  { key: 'f2a', offset: 2, time: '09:30', service: SERVICE.rig },
+  { key: 'f3a', offset: 3, time: '10:00', service: SERVICE.survey }, // capacity 2, 1 taken -> "1 space left"
+  { key: 'f4a', offset: 4, time: '08:30', service: SERVICE.liftout, notes: 'HW Lymington 09:05' }, // empty
+  { key: 'f6a', offset: 6, time: '13:30', service: SERVICE.liftin, notes: 'HW Lymington 14:00' }, // rebook target
+  { key: 'f7a', offset: 7, time: '09:00', service: SERVICE.rig },
+  { key: 'f9a', offset: 9, time: '08:30', service: SERVICE.liftout, notes: 'HW Lymington 09:20' }, // live hold
+  { key: 'f11a', offset: 11, time: '10:00', service: SERVICE.survey },
 ];
 
 type BookingSpec = {
-  session: string;
-  /** Index into CUSTOMERS. */
-  customer: number;
-  partySize: number;
-  status: 'paid' | 'attended' | 'no_show' | 'cancelled' | 'expired' | 'pending_payment' | 'awaiting_rebook';
-  /** Minutes from now until a pending hold lapses. */
+  /** Omit for an unscheduled job: an enquiry the yard has not put in the diary yet. */
+  session?: string;
+  vessel: number;
+  status: string;
+  /** The agreed or offered price, in whole pounds. Omit while still an enquiry. */
+  quotedPounds?: number;
+  requestNotes?: string;
+  quoteNotes?: string;
   expiresInMinutes?: number;
-  /** Set for the one booking that has already been moved off the cancelled session. */
   rebookedFrom?: string;
 };
 
 const BOOKINGS: BookingSpec[] = [
-  // ---- Past: attended, with three no-shows and one cancellation.
-  { session: 'p10a', customer: 0, partySize: 2, status: 'attended' },
-  { session: 'p10a', customer: 1, partySize: 1, status: 'attended' },
-  { session: 'p10b', customer: 2, partySize: 2, status: 'attended' },
-  { session: 'p10b', customer: 3, partySize: 3, status: 'no_show' },
-  { session: 'p8a', customer: 4, partySize: 1, status: 'attended' },
-  { session: 'p8a', customer: 5, partySize: 2, status: 'attended' },
-  { session: 'p8b', customer: 6, partySize: 4, status: 'attended' },
-  { session: 'p8b', customer: 7, partySize: 2, status: 'cancelled' },
-  { session: 'p7a', customer: 8, partySize: 2, status: 'attended' },
-  { session: 'p7a', customer: 9, partySize: 3, status: 'no_show' },
-  { session: 'p5a', customer: 10, partySize: 2, status: 'attended' },
-  { session: 'p5a', customer: 11, partySize: 2, status: 'attended' },
-  // The abandoned checkout that was never paid for. Never consumed a seat.
-  { session: 'p5a', customer: 12, partySize: 1, status: 'expired' },
-  { session: 'p5c', customer: 13, partySize: 2, status: 'attended' },
-  { session: 'p5c', customer: 14, partySize: 3, status: 'attended' },
-  { session: 'p3a', customer: 15, partySize: 2, status: 'attended' },
-  { session: 'p3a', customer: 16, partySize: 1, status: 'no_show' },
-  { session: 'p3b', customer: 17, partySize: 2, status: 'attended' },
-  { session: 'p3b', customer: 0, partySize: 2, status: 'attended' },
-  { session: 'p1a', customer: 1, partySize: 2, status: 'attended' },
-  { session: 'p1a', customer: 2, partySize: 1, status: 'attended' },
-  { session: 'p1b', customer: 3, partySize: 4, status: 'attended' },
+  // ---- Past work, done and invoiced.
+  { session: 'p10a', vessel: 0, status: 'completed', quotedPounds: 280 },
+  { session: 'p10b', vessel: 2, status: 'completed', quotedPounds: 650 },
+  { session: 'p8a', vessel: 3, status: 'completed', quotedPounds: 340 },
+  { session: 'p8a', vessel: 4, status: 'completed', quotedPounds: 340 },
+  { session: 'p8b', vessel: 5, status: 'completed', quotedPounds: 295 },
+  { session: 'p7a', vessel: 6, status: 'completed', quotedPounds: 1450 },
+  // The boat that was not ready when the crane turned up.
+  { session: 'p5a', vessel: 7, status: 'no_show', quotedPounds: 310 },
+  { session: 'p5c', vessel: 8, status: 'completed', quotedPounds: 340 },
+  { session: 'p5c', vessel: 9, status: 'completed', quotedPounds: 320 },
+  { session: 'p3a', vessel: 10, status: 'completed', quotedPounds: 780 },
+  { session: 'p3b', vessel: 11, status: 'completed', quotedPounds: 285 },
+  { session: 'p1a', vessel: 12, status: 'completed', quotedPounds: 260 },
+  { session: 'p1b', vessel: 13, status: 'completed', quotedPounds: 350 },
+  // A deposit that was never paid; the hold lapsed and the slot went back out.
+  { session: 'p5a', vessel: 14, status: 'expired', quotedPounds: 290 },
 
-  // ---- The cancelled session. Two still waiting, one already moved to f6a below.
-  { session: 'cancelled', customer: 4, partySize: 2, status: 'awaiting_rebook' },
-  { session: 'cancelled', customer: 5, partySize: 1, status: 'awaiting_rebook' },
+  // ---- The cancelled lift-in. Two still waiting, one already moved to f6a below.
+  { session: 'cancelled', vessel: 15, status: 'awaiting_rebook', quotedPounds: 275 },
+  { session: 'cancelled', vessel: 16, status: 'awaiting_rebook', quotedPounds: 300 },
 
-  // ---- Today. t0a sits at 5 of 6 seats, all unmarked, ready to mark live.
-  { session: 't0a', customer: 6, partySize: 2, status: 'paid' },
-  { session: 't0a', customer: 7, partySize: 2, status: 'paid' },
-  { session: 't0a', customer: 8, partySize: 1, status: 'paid' },
-  { session: 't0b', customer: 9, partySize: 2, status: 'paid' },
-  { session: 't0b', customer: 10, partySize: 3, status: 'paid' },
-  { session: 't0c', customer: 11, partySize: 2, status: 'paid' },
-  { session: 't0c', customer: 12, partySize: 4, status: 'paid' },
+  // ---- Today. Booked in, nothing marked off yet: this is the live demo moment.
+  { session: 't0a', vessel: 1, status: 'paid', quotedPounds: 285 },
+  { session: 't0b', vessel: 17, status: 'paid', quotedPounds: 690 },
+  { session: 't0b', vessel: 18, status: 'paid', quotedPounds: 420 },
+  { session: 't0c', vessel: 19, status: 'paid', quotedPounds: 360 },
 
-  // ---- Tomorrow. reminderSentAt stays null on these: the reminder button needs work to do.
-  { session: 'f1a', customer: 13, partySize: 2, status: 'paid' },
-  { session: 'f1a', customer: 14, partySize: 2, status: 'paid' },
-  { session: 'f1b', customer: 15, partySize: 3, status: 'paid' },
-  { session: 'f2a', customer: 16, partySize: 2, status: 'paid' },
+  // ---- Tomorrow. reminderSentAt stays null: the reminder button needs work to do.
+  { session: 'f1a', vessel: 2, status: 'paid', quotedPounds: 295 },
+  { session: 'f1b', vessel: 3, status: 'paid', quotedPounds: 1680 },
+  { session: 'f2a', vessel: 4, status: 'paid', quotedPounds: 340 },
 
-  // ---- f3a: 5 of 6 taken, so the public list reads "1 space left".
-  { session: 'f3a', customer: 17, partySize: 2, status: 'paid' },
-  { session: 'f3a', customer: 0, partySize: 2, status: 'paid' },
-  { session: 'f3a', customer: 1, partySize: 1, status: 'paid' },
+  // ---- f3a is a survey day with room for two; one taken -> "1 space left".
+  { session: 'f3a', vessel: 5, status: 'paid', quotedPounds: 720 },
 
   // ---- f4a deliberately has no bookings at all.
 
-  // ---- f6a: the rebook target. Carries the booking moved off the cancelled session.
-  { session: 'f6a', customer: 2, partySize: 2, status: 'paid' },
-  { session: 'f6a', customer: 3, partySize: 1, status: 'paid' },
-  { session: 'f6a', customer: 6, partySize: 2, status: 'paid', rebookedFrom: 'cancelled' },
+  // ---- f6a: the rebook target. Carries the job moved off the cancelled slot.
+  { session: 'f6a', vessel: 6, status: 'paid', quotedPounds: 310 },
+  { session: 'f6a', vessel: 15, status: 'paid', quotedPounds: 275, rebookedFrom: 'cancelled' },
 
-  { session: 'f7a', customer: 4, partySize: 2, status: 'paid' },
-  { session: 'f7a', customer: 5, partySize: 3, status: 'paid' },
+  { session: 'f7a', vessel: 8, status: 'paid', quotedPounds: 340 },
+  { session: 'f11a', vessel: 9, status: 'paid', quotedPounds: 660 },
 
-  // ---- f9a: a live hold, 20 minutes from lapsing. Occupies seats until it does.
-  { session: 'f9a', customer: 7, partySize: 2, status: 'paid' },
-  { session: 'f9a', customer: 8, partySize: 2, status: 'pending_payment', expiresInMinutes: 20 },
+  // ---- f9a: a deposit request 20 minutes from lapsing. Holds the slot until it does.
+  { session: 'f9a', vessel: 10, status: 'pending_payment', quotedPounds: 320, expiresInMinutes: 20 },
 
-  { session: 'f11a', customer: 9, partySize: 2, status: 'paid' },
+  // ---- The yard's inbox: work requested, not yet priced. No slot, no deposit.
+  {
+    vessel: 12,
+    status: 'enquiry',
+    requestNotes:
+      'Rudder feels stiff on the helm since we dried out. Could you take a look next time she is ashore?',
+  },
+  {
+    vessel: 13,
+    status: 'enquiry',
+    requestNotes: 'Due a lift and scrub before the winter. Any tide that suits you before the end of the month.',
+  },
+  {
+    vessel: 17,
+    status: 'enquiry',
+    requestNotes: 'Buying her subject to survey — need a full pre-purchase done in the next fortnight if you can.',
+  },
+
+  // ---- Quotes out, waiting on the customer. These carry a live accept link.
+  {
+    vessel: 11,
+    status: 'quoted',
+    quotedPounds: 1240,
+    requestNotes: 'Soft patch in the deck around the forehatch, want it made good properly.',
+    quoteNotes: 'Cut out and relaminate approx 0.5m², fair and gelcoat to match. Excludes any core replacement beyond 0.5m², which we would come back to you on.',
+  },
+  {
+    vessel: 14,
+    status: 'quoted',
+    quotedPounds: 385,
+    requestNotes: 'Standing rigging is 11 years old. Inspection and a written report for insurance.',
+    quoteNotes: 'Full rig inspection aloft, swage and terminal check, written report for underwriters. Does not include any replacement wire.',
+  },
+
+  // ---- One that went the other way, so the pipeline is not unrealistically clean.
+  {
+    vessel: 19,
+    status: 'declined',
+    quotedPounds: 2100,
+    requestNotes: 'Osmosis treatment quote please.',
+    quoteNotes: 'Peel, dry, epoxy schedule and antifoul. Six to eight weeks ashore.',
+  },
 ];
 
 async function clear() {
@@ -185,6 +228,7 @@ async function clear() {
   await prisma.stripeEvent.deleteMany();
   await prisma.sessionCancellation.deleteMany();
   await prisma.booking.deleteMany();
+  await prisma.vessel.deleteMany();
   await prisma.session.deleteMany();
   await prisma.sessionType.deleteMany();
   await prisma.customer.deleteMany();
@@ -200,60 +244,73 @@ async function main() {
 
   const operator = await prisma.operator.create({
     data: {
-      name: 'Harbourside Sailing',
-      slug: 'harbourside-sailing',
+      name: 'Harbourside Marine',
+      slug: 'harbourside-marine',
       timezone: 'Europe/London',
       currency: 'GBP',
-      contactEmail: 'bookings@harboursidesailing.example.com',
+      contactEmail: 'yard@harboursidemarine.example.com',
       phone: '01590 000000',
     },
   });
 
-  const typeDefs = [
+  const serviceDefs = [
     {
-      slug: TYPE.dinghy,
-      name: 'RYA Level 1 Dinghy',
-      description: 'Two-day introduction to dinghy sailing. No experience needed, all kit provided.',
-      durationMinutes: 240,
-      defaultCapacity: 6,
-      defaultPricePence: 9500,
+      slug: SERVICE.liftout,
+      name: 'Liftout & pressure wash',
+      description:
+        'Crane out, pressure wash off and chock ashore. Priced on length and keel configuration.',
+      durationMinutes: 90,
+      defaultCapacity: 1,
+      tideDependent: true,
       sortOrder: 0,
     },
     {
-      slug: TYPE.keelboat,
-      name: 'Keelboat Taster',
-      description: 'Three hours on a stable keelboat with an instructor. The gentle way in.',
-      durationMinutes: 180,
-      defaultCapacity: 8,
-      defaultPricePence: 6000,
+      slug: SERVICE.liftin,
+      name: 'Lift-in & rig check',
+      description: 'Back in the water, mast stepped and rig tuned, engine run and checked.',
+      durationMinutes: 90,
+      defaultCapacity: 1,
+      tideDependent: true,
       sortOrder: 1,
     },
     {
-      slug: TYPE.rib,
-      name: 'Sunset RIB Blast',
-      description: 'Ninety minutes out into the Solent at speed. Bring a waterproof.',
-      durationMinutes: 90,
-      defaultCapacity: 10,
-      defaultPricePence: 3500,
+      slug: SERVICE.survey,
+      name: 'Pre-purchase survey',
+      description:
+        'Full structural and systems survey with a written report, suitable for insurance and finance.',
+      durationMinutes: 240,
+      defaultCapacity: 2,
+      tideDependent: false,
       sortOrder: 2,
     },
     {
-      slug: TYPE.paddleboard,
-      name: 'Paddleboard Hire',
-      description: 'Board, leash and buoyancy aid for two hours on the river.',
+      slug: SERVICE.rig,
+      name: 'Rig inspection',
+      description: 'Inspection aloft, swage and terminal check, written report for underwriters.',
       durationMinutes: 120,
-      defaultCapacity: 12,
-      defaultPricePence: 2000,
+      defaultCapacity: 2,
+      tideDependent: false,
       sortOrder: 3,
+    },
+    {
+      slug: SERVICE.shipwright,
+      name: 'Shipwright & hull repair',
+      description: 'Laminate, timber and gelcoat work. Quoted after we have seen the damage.',
+      durationMinutes: 480,
+      defaultCapacity: 1,
+      tideDependent: false,
+      sortOrder: 4,
     },
   ];
 
-  const typesBySlug = new Map<string, Awaited<ReturnType<typeof prisma.sessionType.create>>>();
-  for (const t of typeDefs) {
-    const created = await prisma.sessionType.create({
-      data: { ...t, operatorId: operator.id, depositPercent: 50, active: true },
-    });
-    typesBySlug.set(t.slug, created);
+  const servicesBySlug = new Map<string, Awaited<ReturnType<typeof prisma.sessionType.create>>>();
+  for (const s of serviceDefs) {
+    servicesBySlug.set(
+      s.slug,
+      await prisma.sessionType.create({
+        data: { ...s, operatorId: operator.id, depositPercent: 50, active: true },
+      }),
+    );
   }
 
   const customers = [];
@@ -270,25 +327,43 @@ async function main() {
     );
   }
 
+  const vessels = [];
+  for (const v of VESSELS) {
+    vessels.push(
+      await prisma.vessel.create({
+        data: {
+          operatorId: operator.id,
+          customerId: customers[v.owner].id,
+          name: v.name,
+          make: v.make,
+          lengthMetres: v.lengthMetres,
+          keelType: v.keelType,
+          berth: v.berth,
+        },
+      }),
+    );
+  }
+
   const sessionsByKey = new Map<string, Awaited<ReturnType<typeof prisma.session.create>>>();
   for (const spec of SESSIONS) {
-    const type = typesBySlug.get(spec.type)!;
+    const service = servicesBySlug.get(spec.service)!;
     const startsAt = londonDateTimeToUtc(addDays(today, spec.offset), spec.time);
-    const endsAt = new Date(startsAt.getTime() + type.durationMinutes * 60_000);
 
-    const created = await prisma.session.create({
-      data: {
-        operatorId: operator.id,
-        sessionTypeId: type.id,
-        startsAt,
-        endsAt,
-        // Snapshotted from the type's defaults, then independently editable.
-        capacity: type.defaultCapacity,
-        pricePerPersonPence: type.defaultPricePence,
-        status: spec.key === 'cancelled' ? 'cancelled' : 'scheduled',
-      },
-    });
-    sessionsByKey.set(spec.key, created);
+    sessionsByKey.set(
+      spec.key,
+      await prisma.session.create({
+        data: {
+          operatorId: operator.id,
+          sessionTypeId: service.id,
+          startsAt,
+          endsAt: new Date(startsAt.getTime() + service.durationMinutes * 60_000),
+          // Snapshotted from the service default, then independently editable.
+          capacity: service.defaultCapacity,
+          notes: spec.notes,
+          status: spec.key === 'cancelled' ? 'cancelled' : 'scheduled',
+        },
+      }),
+    );
   }
 
   const cancelledSession = sessionsByKey.get('cancelled')!;
@@ -297,80 +372,95 @@ async function main() {
     data: {
       sessionId: cancelledSession.id,
       reason: 'weather',
-      note: 'Force 6 gusting 7 in the Solent',
+      note: 'Force 6 gusting 7 in the Solent — crane not safe to work',
       cancelledBy: 'admin',
     },
   });
 
-  // Bookings that were notified about the cancellation, for the EmailLog rows below.
-  const notified: { bookingId: string; customerId: string; email: string; reference: string }[] = [];
+  const notified: { bookingId: string; customerId: string; email: string }[] = [];
+  let liveQuoteToken: string | null = null;
 
   for (const spec of BOOKINGS) {
-    const session = sessionsByKey.get(spec.session)!;
-    const sessionSpec = SESSIONS.find((s) => s.key === spec.session)!;
-    const type = typesBySlug.get(sessionSpec.type)!;
-    const customer = customers[spec.customer];
+    const session = spec.session ? sessionsByKey.get(spec.session)! : null;
+    const vessel = vessels[spec.vessel];
+    const customerId = vessel.customerId;
 
-    const total = totalPence(spec.partySize, session.pricePerPersonPence);
-    const deposit = depositPence(spec.partySize, session.pricePerPersonPence, type.depositPercent);
+    const sessionSpec = spec.session ? SESSIONS.find((s) => s.key === spec.session)! : null;
+    const service = sessionSpec ? servicesBySlug.get(sessionSpec.service)! : null;
 
-    const isPast = session.startsAt < now;
-    const paidLike = spec.status !== 'pending_payment' && spec.status !== 'expired';
+    const quoted = spec.quotedPounds != null ? spec.quotedPounds * 100 : null;
+    // A deposit exists only once the customer has accepted; see money.ts.
+    const accepted = ['pending_payment', 'paid', 'completed', 'no_show', 'awaiting_rebook', 'expired'].includes(
+      spec.status,
+    );
+    const deposit =
+      accepted && quoted != null ? depositPence(quoted, service?.depositPercent ?? 50) : null;
+
+    const settled = ['paid', 'completed', 'no_show', 'awaiting_rebook'].includes(spec.status);
+    const isPast = session ? session.startsAt < now : false;
+
+    const quoteToken = spec.status === 'quoted' ? generateRebookToken() : null;
+    if (quoteToken && !liveQuoteToken) liveQuoteToken = quoteToken;
 
     const booking = await prisma.booking.create({
       data: {
         reference: generateBookingReference(),
         operatorId: operator.id,
-        sessionId: session.id,
-        customerId: customer.id,
-        partySize: spec.partySize,
-        pricePerPersonPence: session.pricePerPersonPence,
-        totalPence: total,
-        depositPence: deposit,
-        status: spec.status,
+        sessionId: session?.id ?? null,
+        customerId,
+        vesselId: vessel.id,
 
-        // A hold is the only thing that carries an expiry; everything else has paid.
+        requestNotes: spec.requestNotes,
+        quotedPence: quoted,
+        quotedAt: quoted != null ? new Date(now.getTime() - 3 * 86_400_000) : null,
+        quoteNotes: spec.quoteNotes,
+        acceptedAt: accepted ? new Date(now.getTime() - 2 * 86_400_000) : null,
+        depositPence: deposit,
+
+        status: spec.status,
         expiresAt:
           spec.expiresInMinutes != null
             ? new Date(now.getTime() + spec.expiresInMinutes * 60_000)
             : null,
-        paidAt: paidLike ? new Date(session.createdAt.getTime()) : null,
-        stripePaymentIntentId: paidLike ? `pi_seed_${generateRebookToken().slice(0, 18)}` : null,
+        paidAt: settled ? new Date(now.getTime() - 86_400_000) : null,
+        stripePaymentIntentId: settled ? `pi_seed_${generateRebookToken().slice(0, 18)}` : null,
 
+        completedAt: spec.status === 'completed' && session ? session.endsAt : null,
         attendanceMarkedAt:
-          spec.status === 'attended' || spec.status === 'no_show' ? session.endsAt : null,
-        cancelledAt: spec.status === 'cancelled' ? session.startsAt : null,
+          (spec.status === 'completed' || spec.status === 'no_show') && session ? session.endsAt : null,
 
-        // Still-waiting customers keep a live single-use link; the moved one has spent it.
         rebookToken: spec.status === 'awaiting_rebook' ? generateRebookToken() : null,
         rebookedFromSessionId: spec.rebookedFrom ? cancelledSession.id : null,
-        rebookedAt: spec.rebookedFrom ? new Date(cancelledSession.startsAt.getTime() + 3_600_000) : null,
+        rebookedAt: spec.rebookedFrom
+          ? new Date(cancelledSession.startsAt.getTime() + 3_600_000)
+          : null,
+        quoteToken,
 
-        // Past sessions were reminded the evening before. Tomorrow's deliberately were not.
-        reminderSentAt: isPast && paidLike ? new Date(session.startsAt.getTime() - 57_600_000) : null,
+        // Past jobs were reminded the evening before. Tomorrow's deliberately were not.
+        reminderSentAt:
+          isPast && settled && session ? new Date(session.startsAt.getTime() - 57_600_000) : null,
       },
     });
 
     if (spec.status === 'awaiting_rebook' || spec.rebookedFrom) {
       notified.push({
         bookingId: booking.id,
-        customerId: customer.id,
-        email: customer.email,
-        reference: booking.reference,
+        customerId,
+        email: customers.find((c) => c.id === customerId)!.email,
       });
     }
   }
 
   // The evidence trail behind "3 customers notified". Written directly, never sent:
-  // sessionId is the CANCELLED session even for the customer who has since moved,
-  // because that is the session they were notified about.
+  // sessionId is the CANCELLED slot even for the customer who has since moved,
+  // because that is the slot they were notified about.
   for (const n of notified) {
     await prisma.emailLog.create({
       data: {
         type: 'cancellation',
         toEmail: n.email,
         deliveredTo: process.env.DEMO_EMAIL_REDIRECT?.trim() || n.email,
-        subject: 'Cancelled: Keelboat Taster',
+        subject: 'Cancelled: Lift-in & rig check',
         status: 'sent',
         providerId: 'local-dev',
         bookingId: n.bookingId,
@@ -387,13 +477,13 @@ async function main() {
         email: 'rachel@example.com',
         business: 'Dunne Marine Engineering',
         message:
-          'We run engine servicing out of Hamble and the diary is still a paper book. Can you do callout slots rather than fixed sessions?',
+          'We run engine servicing out of Hamble and the diary is still a paper book. Can you do callout slots rather than fixed ones?',
       },
       {
         name: 'Ian Prosser',
         email: 'ian@example.com',
-        business: 'Solent Paddle Co',
-        message: 'Interested in the £40/month. How long does setup take if we want it live for Easter?',
+        business: 'Solent Rigging',
+        message: 'Interested in the £40/month. How long does setup take if we want it live before the winter lift season?',
       },
     ],
   });
@@ -405,16 +495,20 @@ async function main() {
   const counts = {
     sessions: await prisma.session.count(),
     bookings: await prisma.booking.count(),
-    customers: await prisma.customer.count(),
+    vessels: await prisma.vessel.count(),
+    enquiries: await prisma.booking.count({ where: { status: 'enquiry' } }),
+    quoted: await prisma.booking.count({ where: { status: 'quoted' } }),
   };
 
   console.log(
     [
       '',
-      `Seeded ${counts.sessions} sessions, ${counts.bookings} bookings, ${counts.customers} customers.`,
+      `Seeded ${counts.sessions} slots, ${counts.bookings} jobs, ${counts.vessels} vessels.`,
       `Today in London is ${today}.`,
-      `Cancelled session: ${notified.length} customers notified.`,
-      rebookable?.rebookToken ? `Rebook link: /rebook/${rebookable.rebookToken}` : '',
+      `Inbox: ${counts.enquiries} awaiting a quote, ${counts.quoted} quotes out.`,
+      `Cancelled slot: ${notified.length} customers notified.`,
+      rebookable?.rebookToken ? `Rebook link:  /rebook/${rebookable.rebookToken}` : '',
+      liveQuoteToken ? `Quote link:   /quote/${liveQuoteToken}` : '',
       '',
     ]
       .filter(Boolean)
