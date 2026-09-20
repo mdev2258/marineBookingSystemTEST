@@ -11,6 +11,7 @@ import {
   signAdminToken,
   verifyAdminToken,
 } from '@/lib/auth';
+import { sendReminders } from '@/lib/reminders';
 
 /**
  * src/proxy.ts already guards /admin/*, but a Server Action is a POST endpoint
@@ -51,6 +52,22 @@ export async function adminLogout(): Promise<void> {
   const store = await cookies();
   store.delete(ADMIN_COOKIE);
   redirect('/admin/login');
+}
+
+export type ReminderActionState = { result?: { considered: number; sent: number; failed: number }; error?: string };
+
+/**
+ * The admin "send now" button runs the identical function as the cron, so what
+ * the operator sees in a demo is exactly what happens at 17:00 unattended.
+ */
+export async function sendRemindersNow(
+  _prev: ReminderActionState,
+  _formData: FormData,
+): Promise<ReminderActionState> {
+  await requireAdmin();
+  const result = await sendReminders();
+  revalidatePath('/admin/sessions');
+  return { result };
 }
 
 /**

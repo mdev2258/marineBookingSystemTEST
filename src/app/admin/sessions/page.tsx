@@ -2,9 +2,10 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { AdminShell } from '@/components/admin/shell';
+import { ReminderButton } from '@/components/admin/reminder-button';
 import { seatsTakenBySession, spacesLeftFrom } from '@/lib/availability';
 import { formatPenceShort } from '@/lib/money';
-import { formatDateShort, formatTimeRange } from '@/lib/time';
+import { addDays, formatDateShort, formatTimeRange, londonDayBounds, todayInLondon } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +22,16 @@ export default async function SessionsPage() {
 
   const taken = await seatsTakenBySession(sessions.map((s) => s.id), now);
 
+  // Same predicate the cron uses, so the count and the button agree.
+  const tomorrow = londonDayBounds(addDays(todayInLondon(now), 1));
+  const dueReminders = await prisma.booking.count({
+    where: {
+      status: 'paid',
+      reminderSentAt: null,
+      session: { status: 'scheduled', startsAt: { gte: tomorrow.start, lt: tomorrow.end } },
+    },
+  });
+
   return (
     <AdminShell>
       <div className="flex flex-wrap items-center justify-between gap-3 py-6">
@@ -31,6 +42,10 @@ export default async function SessionsPage() {
         >
           Create session
         </Link>
+      </div>
+
+      <div className="mb-6">
+        <ReminderButton due={dueReminders} />
       </div>
 
       {sessions.length === 0 ? (
