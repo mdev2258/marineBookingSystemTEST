@@ -45,7 +45,7 @@ the "3 customers notified" counter is truthful offline.
 
 ### Before a demo
 
-**Re-seed on the morning of the demo**, then check it:
+**Re-seed shortly before the demo** — minutes, not hours — then check it:
 
 ```bash
 npm run seed && npm run check
@@ -61,7 +61,9 @@ the moment it runs. There are no hardcoded dates. A fresh seed gives you:
 - Today's first session at 5 of 6 seats with nothing marked yet — mark people
   attended live, in front of the prospect
 - A future session reading exactly "1 space left", and another completely empty
-- A live pending payment 20 minutes from lapsing, holding its seats
+- A live pending payment 20 minutes from lapsing, holding its seats — **this is
+  why you re-seed shortly before the demo, not the night before**; after 20
+  minutes the hold is dead and `npm run check` will tell you so
 - A cancelled session with 3 customers notified, 1 already rebooked, 2 still to
   pick a date
 - Tomorrow's bookings deliberately un-reminded, so "Send reminders now" does
@@ -106,7 +108,17 @@ dependency, `src/app/api/stripe/webhook/route.ts` and the `StripeEvent`
 idempotency handler are all still to be written. The `StripeEvent` model already
 exists in the schema. No page or action needs to change.
 
-`docs/PLAN.md` section 7 is the handover contract.
+`docs/PLAN.md` section 7 is the handover contract. Two items in it are safe in
+the demo and **not safe in production** — both are commented in
+`src/lib/payments.ts`:
+
+1. `verifyAndMarkPaid` also resolves on a bare booking reference, so the demo
+   can complete with no Stripe account. `/book/confirmation` is an
+   unauthenticated page, so that branch must be **deleted**, not just bypassed.
+2. `markBookingPaid` does not check `expiresAt`, so a payment arriving after the
+   hold has lapsed resurrects a booking whose seats may already have been given
+   away. Refuse-and-refund or honour-and-overbook is a commercial call, so it is
+   left to be decided rather than guessed.
 
 ## Deploying to Vercel
 

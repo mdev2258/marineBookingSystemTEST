@@ -28,6 +28,15 @@ export default async function BookingPage(props: PageProps<'/booking/[reference]
   const cancelled = booking.session.status === 'cancelled';
   const holdMinutes = booking.expiresAt ? minutesUntil(booking.expiresAt) : 0;
 
+  // "Deposit paid" under "Status: Awaiting payment" is a contradiction the
+  // customer is right to distrust. Only say paid when it actually was.
+  const settled = !['pending_payment', 'expired'].includes(booking.status);
+  const depositLabel = settled
+    ? 'Deposit paid'
+    : booking.status === 'expired'
+      ? 'Deposit (never paid)'
+      : 'Deposit to pay';
+
   return (
     <PublicShell width="narrow">
       <p className="text-sm text-slate-600">Booking reference</p>
@@ -73,8 +82,8 @@ export default async function BookingPage(props: PageProps<'/booking/[reference]
           />
           <Row label="Status" value={BOOKING_STATUS_LABEL[booking.status as BookingStatus]} />
           <Row label="Total" value={formatPence(booking.totalPence)} />
-          <Row label="Deposit paid" value={formatPence(booking.depositPence)} />
-          <Row label="Due on the day" value={formatPence(balance)} />
+          <Row label={depositLabel} value={formatPence(booking.depositPence)} />
+          {settled && <Row label="Due on the day" value={formatPence(balance)} />}
         </dl>
       </div>
 

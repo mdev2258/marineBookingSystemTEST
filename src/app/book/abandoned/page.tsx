@@ -9,9 +9,12 @@ export default function AbandonedPage() {
   return (
     <PublicShell width="narrow">
       <h1 className="text-2xl font-semibold tracking-tight">No payment taken</h1>
+      {/* Careful with this wording: the hold is NOT released immediately. It
+          runs its full 30 minutes, and until then it is still holding seats. */}
       <p className="mt-3 text-slate-700">
-        You stopped before paying, so nothing has been charged and your place has been released for
-        someone else. You are welcome to start again whenever you like.
+        You stopped before paying, so nothing has been charged. We will hold your place for a short
+        while longer in case you change your mind, then release it. You are welcome to start again
+        whenever you like.
       </p>
       <Link
         href="/book"

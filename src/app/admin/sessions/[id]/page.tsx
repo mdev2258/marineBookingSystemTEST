@@ -67,6 +67,14 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
           {session.cancellation?.note && (
             <p className="mt-1 text-red-900">&ldquo;{session.cancellation.note}&rdquo;</p>
           )}
+          {/* Without this the notified/rebooked counter is unreachable for any
+              session that was already cancelled, including the seeded one. */}
+          <Link
+            href={`/admin/sessions/${session.id}/cancel`}
+            className="mt-3 inline-block font-semibold text-red-900 underline"
+          >
+            Who was notified, and who has rebooked
+          </Link>
         </div>
       ) : (
         <>

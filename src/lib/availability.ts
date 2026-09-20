@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { CAPACITY_CONSUMING_STATUSES } from '@/lib/enums';
 
 /**
  * THE capacity predicate. Every surface that shows "spaces left" -- the public
@@ -20,7 +21,7 @@ import { prisma } from '@/lib/prisma';
 export function occupiedSeatWhere(now: Date = new Date()): Prisma.BookingWhereInput {
   return {
     OR: [
-      { status: { in: ['paid', 'attended', 'no_show'] } },
+      { status: { in: [...CAPACITY_CONSUMING_STATUSES] } },
       { status: 'pending_payment', expiresAt: { gt: now } },
     ],
   };

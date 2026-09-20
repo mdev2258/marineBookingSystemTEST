@@ -16,6 +16,25 @@ import { sendBookingConfirmationEmail } from '@/lib/notifications';
  *   - src/app/api/stripe/webhook/route.ts
  *   - any Stripe SDK call
  *
+ * ---------------------------------------------------------------------------
+ * TWO THINGS THE SPECIALIST MUST RESOLVE. Both are safe in the demo and are
+ * NOT safe in production.
+ *
+ * 1. MUST DELETE, not merely stop using, the `{ reference: checkoutSessionId }`
+ *    branch in verifyAndMarkPaid. /book/confirmation is an unauthenticated
+ *    page, so while that branch exists anyone who knows their own booking
+ *    reference can mark their own booking paid without paying. It exists only
+ *    so the demo completes with no Stripe account.
+ *
+ * 2. MUST DECIDE what happens when payment arrives after Booking.expiresAt.
+ *    markBookingPaid does not look at expiresAt, so a hold that has already
+ *    lapsed -- and whose seats availability has therefore handed to somebody
+ *    else -- is resurrected into a confirmed booking, overbooking the session.
+ *    Stripe Checkout expiring the session makes this unlikely, not impossible.
+ *    Refuse and refund, or honour and overbook, is a commercial decision, so
+ *    it is deliberately not guessed at here.
+ * ---------------------------------------------------------------------------
+ *
  * The `StripeEvent` model already exists in schema.prisma for the webhook's
  * idempotency check. See docs/PLAN.md section 7 for the handover contract.
  */
@@ -62,6 +81,9 @@ export async function startCheckout(bookingId: string): Promise<{ url: string }>
  * inside the WHERE clause, so a second call matches zero rows, writes nothing,
  * and sends no duplicate confirmation email. Do not "improve" this into a
  * findUnique + update.
+ *
+ * NOTE: the WHERE deliberately does NOT test expiresAt. See point 2 in the
+ * header -- a late payment currently resurrects a lapsed hold.
  */
 export async function markBookingPaid(
   bookingId: string,
@@ -111,7 +133,9 @@ export async function verifyAndMarkPaid(
     where: {
       OR: [
         { stripeCheckoutSessionId: checkoutSessionId },
-        // Demo path only. The real implementation drops this branch.
+        // DEMO ONLY -- DELETE THIS LINE when Stripe is wired up. This page is
+        // unauthenticated; while this branch exists, knowing a booking
+        // reference is enough to mark that booking paid without paying.
         { reference: checkoutSessionId },
       ],
     },
