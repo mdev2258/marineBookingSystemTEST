@@ -1,11 +1,16 @@
 import Link from 'next/link';
 import { adminLogout } from '@/app/admin/actions';
+import { prisma } from '@/lib/prisma';
 
 /**
  * Used by the authenticated admin pages rather than an admin/layout.tsx, so
  * that /admin/login does not inherit navigation it cannot use.
  */
-export function AdminShell({ children }: { children: React.ReactNode }) {
+export async function AdminShell({ children }: { children: React.ReactNode }) {
+  // Unpriced work is money not yet earned, so the count goes where it cannot
+  // be missed rather than only on the screen that lists it.
+  const waiting = await prisma.booking.count({ where: { status: 'enquiry' } });
+
   return (
     <>
       <header className="border-b border-slate-200 bg-white">
@@ -15,7 +20,18 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               Day
             </Link>
             <Link href="/admin/sessions" className="font-semibold tracking-tight hover:text-brand-700">
-              Sessions
+              Diary
+            </Link>
+            <Link
+              href="/admin/enquiries"
+              className="flex items-center gap-1.5 font-semibold tracking-tight hover:text-brand-700"
+            >
+              Inbox
+              {waiting > 0 && (
+                <span className="rounded-full bg-brand-600 px-2 py-0.5 text-xs font-bold text-white">
+                  {waiting}
+                </span>
+              )}
             </Link>
           </nav>
           <form action={adminLogout}>
