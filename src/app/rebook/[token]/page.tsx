@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { prisma } from '@/lib/prisma';
+import { PublicShell } from '@/components/public-shell';
 import { RebookPicker, type RebookOption } from '@/components/rebook-picker';
 import { confirmRebook } from '@/app/rebook/actions';
 import { seatsTakenBySession, spacesLeftFrom } from '@/lib/availability';
@@ -11,16 +12,9 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Pick a new date — Harbourside Sailing' };
 
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="mx-auto w-full max-w-xl px-5 py-12">
-      <p className="text-sm font-semibold uppercase tracking-widest text-brand-700">
-        Harbourside Sailing
-      </p>
-      {children}
-    </main>
-  );
-}
+const Shell = ({ children }: { children: React.ReactNode }) => (
+  <PublicShell width="narrow">{children}</PublicShell>
+);
 
 export default async function RebookPage(props: PageProps<'/rebook/[token]'>) {
   const { token } = await props.params;

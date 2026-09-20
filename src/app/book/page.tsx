@@ -1,0 +1,118 @@
+import type { Metadata } from 'next';
+import Link from 'next/link';
+import { prisma } from '@/lib/prisma';
+import { PublicShell } from '@/components/public-shell';
+import { seatsTakenBySession, spacesLeftFrom } from '@/lib/availability';
+import { formatPenceShort } from '@/lib/money';
+import { formatDateShort, formatTimeRange } from '@/lib/time';
+
+// Without this a prospect is shown a cached "3 spaces left" after the last seat
+// has gone.
+export const dynamic = 'force-dynamic';
+
+export const metadata: Metadata = { title: 'Book a session — Harbourside Sailing' };
+
+export default async function BookPage(props: PageProps<'/book'>) {
+  const params = await props.searchParams;
+  const type = typeof params.type === 'string' ? params.type : '';
+
+  const now = new Date();
+  const [types, sessions] = await Promise.all([
+    prisma.sessionType.findMany({ where: { active: true }, orderBy: { sortOrder: 'asc' } }),
+    prisma.session.findMany({
+      where: {
+        status: 'scheduled',
+        startsAt: { gt: now },
+        ...(type ? { sessionType: { slug: type } } : {}),
+      },
+      orderBy: { startsAt: 'asc' },
+      include: { sessionType: true },
+    }),
+  ]);
+
+  const taken = await seatsTakenBySession(sessions.map((s) => s.id), now);
+
+  return (
+    <PublicShell>
+      <h1 className="text-2xl font-semibold tracking-tight">What&rsquo;s on</h1>
+      <p className="mt-2 text-slate-700">
+        Pay a 50% deposit to hold your place. The rest is due on the day.
+      </p>
+
+      <div className="mt-6 flex flex-wrap gap-2">
+        <FilterChip href="/book" label="Everything" active={type === ''} />
+        {types.map((t) => (
+          <FilterChip
+            key={t.id}
+            href={`/book?type=${t.slug}`}
+            label={t.name}
+            active={type === t.slug}
+          />
+        ))}
+      </div>
+
+      {sessions.length === 0 ? (
+        <p className="py-12 text-center text-slate-600">
+          Nothing on the schedule for that just now. Give us a ring and we will sort something out.
+        </p>
+      ) : (
+        <ul className="mt-6 space-y-3">
+          {sessions.map((session) => {
+            const left = spacesLeftFrom(session.capacity, taken.get(session.id) ?? 0);
+            const full = left === 0;
+
+            return (
+              <li key={session.id}>
+                <div
+                  className={`rounded-lg border p-4 ${full ? 'border-slate-200 bg-slate-50' : 'border-slate-200'}`}
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                    <p className="font-semibold">
+                      {formatDateShort(session.startsAt)} ·{' '}
+                      {formatTimeRange(session.startsAt, session.endsAt)}
+                    </p>
+                    <p className="font-medium">{formatPenceShort(session.pricePerPersonPence)} pp</p>
+                  </div>
+                  <p className="mt-0.5 text-slate-700">{session.sessionType.name}</p>
+
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                    <p
+                      className={`text-sm font-medium ${
+                        full ? 'text-slate-600' : left <= 2 ? 'text-red-700' : 'text-slate-700'
+                      }`}
+                    >
+                      {full ? 'Fully booked' : `${left} space${left === 1 ? '' : 's'} left`}
+                    </p>
+                    {!full && (
+                      <Link
+                        href={`/book/${session.id}`}
+                        className="inline-flex min-h-12 items-center justify-center rounded-md bg-brand-600 px-5 font-semibold text-white hover:bg-brand-700"
+                      >
+                        Book
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </PublicShell>
+  );
+}
+
+function FilterChip({ href, label, active }: { href: string; label: string; active: boolean }) {
+  return (
+    <Link
+      href={href}
+      className={`rounded-full border px-4 py-2 text-sm font-medium ${
+        active
+          ? 'border-brand-600 bg-brand-600 text-white'
+          : 'border-slate-300 text-slate-700 hover:border-brand-500'
+      }`}
+    >
+      {label}
+    </Link>
+  );
+}
