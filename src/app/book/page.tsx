@@ -38,6 +38,13 @@ export default async function BookPage(props: PageProps<'/book'>) {
         Ask for a slot and we will come back with a price for your boat. Nothing is owed until you
         accept the quote.
       </p>
+      <p className="mt-2 text-slate-700">
+        Need a survey, a repair, or something that isn&rsquo;t a lift?{' '}
+        <Link href="/request" className="text-brand-700 underline">
+          Ask us about work
+        </Link>{' '}
+        instead.
+      </p>
 
       <div className="mt-6 flex flex-wrap gap-2">
         <FilterChip href="/book" label="Everything" active={type === ''} />

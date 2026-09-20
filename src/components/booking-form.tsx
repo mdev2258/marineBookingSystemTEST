@@ -24,14 +24,34 @@ function Err({ message }: { message?: string }) {
 export function BookingForm({
   action,
   submitLabel = 'Ask for a quote',
+  services,
 }: {
   action: (prev: RequestState, formData: FormData) => Promise<RequestState>;
   submitLabel?: string;
+  /** Only passed on the open request form; a slot already implies its service. */
+  services?: { id: string; name: string }[];
 }) {
   const [state, formAction, pending] = useActionState<RequestState, FormData>(action, {});
 
   return (
     <form action={formAction} className="space-y-6">
+      {services && (
+        <div>
+          <label htmlFor="serviceId" className="mb-1.5 block font-medium">
+            What do you need?
+          </label>
+          <select id="serviceId" name="serviceId" className={field} defaultValue="">
+            <option value="">Choose…</option>
+            {services.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          <Err message={state.errors?.serviceId} />
+        </div>
+      )}
+
       <fieldset className="space-y-5">
         <legend className="mb-1 text-lg font-semibold tracking-tight">The boat</legend>
 

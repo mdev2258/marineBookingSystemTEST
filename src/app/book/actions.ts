@@ -23,7 +23,10 @@ const RequestSchema = z.object({
 export type RequestState = {
   error?: string;
   errors?: Partial<
-    Record<'name' | 'email' | 'phone' | 'vesselName' | 'lengthMetres' | 'requestNotes', string>
+    Record<
+      'name' | 'email' | 'phone' | 'vesselName' | 'lengthMetres' | 'requestNotes' | 'serviceId',
+      string
+    >
   >;
 };
 
@@ -162,7 +165,6 @@ export async function requestSlot(
  * slot request, just with sessionId null.
  */
 export async function requestWork(
-  serviceId: string,
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
@@ -170,8 +172,11 @@ export async function requestWork(
   if (!parsed.success) return fieldErrors(parsed.error);
   const { name, email, phone, requestNotes, ...vesselInput } = parsed.data;
 
+  const serviceId = String(formData.get('serviceId') ?? '');
+  if (!serviceId) return { errors: { serviceId: 'What do you need doing?' } };
+
   const service = await prisma.sessionType.findUnique({ where: { id: serviceId } });
-  if (!service || !service.active) return { error: 'That service is no longer offered.' };
+  if (!service || !service.active) return { errors: { serviceId: 'That service is no longer offered.' } };
 
   const customer = await prisma.customer.upsert({
     where: { operatorId_email: { operatorId: service.operatorId, email } },
