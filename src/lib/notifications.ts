@@ -4,6 +4,22 @@ import { formatPence } from '@/lib/money';
 import { formatDateTime, formatTimeRange } from '@/lib/time';
 import { CANCELLATION_REASON_LABEL, type CancellationReason } from '@/lib/enums';
 
+/**
+ * Everything interpolated into an email body goes through this first.
+ *
+ * Customer names arrive from the public booking form and the contact form on
+ * the marketing page, so they are attacker-controlled: an unescaped `<` lets a
+ * stranger write markup into an email we send in the operator's name. The
+ * cancellation note is only admin-typed, but an apostrophe or an ampersand in
+ * "Force 6 & rising" should render as itself either way.
+ */
+function esc(value: string): string {
+  return value.replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
+  );
+}
+
 // Plain, readable transactional email. Inline styles only -- no CSS file
 // survives Gmail, and nothing here is worth a rendering library.
 function wrap(heading: string, bodyHtml: string): string {
@@ -81,7 +97,7 @@ Harbourside Sailing`;
     subject,
     text,
     html: wrap(
-      `You're booked in, ${b.customer.name.split(' ')[0]}`,
+      `You're booked in, ${esc(b.customer.name.split(' ')[0])}`,
       `${table(details)}${button(link, 'View your booking')}<p style="font-size:14px;color:#334155;">Please arrive 15 minutes before your start time.</p>`,
     ),
     bookingId: b.id,
@@ -133,7 +149,7 @@ Harbourside Sailing`;
         row('Reference', b.reference),
         row('Reason', reasonLabel),
       ])}
-      ${note ? `<p style="font-size:15px;background:#f1f5f9;border-left:4px solid #0b4f6c;padding:12px 14px;margin:0 0 18px;">${note}</p>` : ''}
+      ${note ? `<p style="font-size:15px;background:#f1f5f9;border-left:4px solid #0b4f6c;padding:12px 14px;margin:0 0 18px;">${esc(note)}</p>` : ''}
       <p style="font-size:15px;">Your <strong>${formatPence(b.depositPence)}</strong> deposit is safe and moves with you — you don't need to pay again.</p>
       ${rebookLink ? button(rebookLink, 'Pick a new date') : '<p style="font-size:15px;">We will be in touch shortly with new dates.</p>'}
       <p style="font-size:14px;color:#334155;">Sorry for the disruption.</p>`,
@@ -254,10 +270,10 @@ ${input.message}`;
     html: wrap(
       'New enquiry',
       `${table([
-        row('Name', input.name),
-        row('Email', `<a href="mailto:${input.email}">${input.email}</a>`),
-        row('Business', input.business || '—'),
-      ])}<p style="font-size:15px;white-space:pre-wrap;">${input.message}</p>`,
+        row('Name', esc(input.name)),
+        row('Email', `<a href="mailto:${esc(input.email)}">${esc(input.email)}</a>`),
+        row('Business', input.business ? esc(input.business) : '—'),
+      ])}<p style="font-size:15px;white-space:pre-wrap;">${esc(input.message)}</p>`,
     ),
   });
 }
