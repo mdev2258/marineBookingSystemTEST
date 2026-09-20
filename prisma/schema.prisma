@@ -1,0 +1,216 @@
+// Marine Booking — demo schema.
+//
+// PORTABILITY RULES (SQLite local <-> Postgres on Vercel). Do not break these:
+//   * No `enum` blocks     -> String columns + TS unions in src/lib/enums.ts
+//   * No `@db.*` native types
+//   * No `Decimal`         -> Int pence everywhere
+//   * No `Json`
+//   * No `migrations/`     -> `prisma db push` on BOTH environments
+//
+// The provider below is NOT env-swappable (Prisma 6 disallows env() here).
+// Deploying to Postgres = set DATABASE_URL *and* change this one line.
+// See README > Deploying to Vercel.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// The business. Deliberately generic: one row is the fictional operator.
+model Operator {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  timezone     String   @default("Europe/London")
+  currency     String   @default("GBP")
+  contactEmail String
+  phone        String?
+  createdAt    DateTime @default(now())
+
+  sessionTypes SessionType[]
+  sessions     Session[]
+  customers    Customer[]
+  bookings     Booking[]
+}
+
+/// The lookup table that keeps this app non-sailing-specific.
+/// Swap the rows and it is a RIB charter or paddleboard hire: no code changes.
+model SessionType {
+  id                String  @id @default(cuid())
+  operatorId        String
+  name              String
+  slug              String
+  description       String?
+  durationMinutes   Int
+  defaultCapacity   Int
+  defaultPricePence Int
+  depositPercent    Int     @default(50)
+  active            Boolean @default(true)
+  sortOrder         Int     @default(0)
+
+  operator Operator  @relation(fields: [operatorId], references: [id])
+  sessions Session[]
+
+  @@unique([operatorId, slug])
+}
+
+/// A bookable instance. capacity and pricePerPersonPence are SNAPSHOTTED from
+/// the SessionType defaults at creation, then independently editable.
+/// Never read price through the relation at booking time.
+model Session {
+  id                  String   @id @default(cuid())
+  operatorId          String
+  sessionTypeId       String
+  startsAt            DateTime
+  endsAt              DateTime
+  capacity            Int
+  pricePerPersonPence Int
+  /// scheduled | cancelled
+  status              String   @default("scheduled")
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  operator     Operator             @relation(fields: [operatorId], references: [id])
+  sessionType  SessionType          @relation(fields: [sessionTypeId], references: [id])
+  bookings     Booking[]
+  cancellation SessionCancellation?
+
+  @@index([operatorId, startsAt])
+  @@index([sessionTypeId, startsAt])
+}
+
+model Customer {
+  id         String   @id @default(cuid())
+  operatorId String
+  name       String
+  /// Always stored lowercased. Never query with mode:'insensitive' (Postgres-only).
+  email      String
+  phone      String?
+  createdAt  DateTime @default(now())
+
+  operator Operator  @relation(fields: [operatorId], references: [id])
+  bookings Booking[]
+
+  @@unique([operatorId, email])
+}
+
+/// The centre of the model.
+model Booking {
+  id         String @id @default(cuid())
+  /// Human-readable, e.g. HS-7QK2ND. Used in emails and as the public URL key.
+  reference  String @unique
+  operatorId String
+  sessionId  String
+  customerId String
+
+  partySize           Int
+  /// Snapshot of Session.pricePerPersonPence at the moment of booking.
+  pricePerPersonPence Int
+  totalPence          Int
+  /// Math.round(depositPercent/100 * partySize * pricePerPersonPence).
+  /// Computed once at creation, never recomputed -- it survives a price change
+  /// and it survives a rebook onto a differently-priced session.
+  depositPence        Int
+
+  /// pending_payment | paid | expired | cancelled | awaiting_rebook | attended | no_show
+  status    String    @default("pending_payment")
+  /// When a pending_payment hold stops consuming capacity. Mirrors Stripe
+  /// Checkout expires_at (30 min, Stripe's minimum).
+  expiresAt DateTime?
+
+  stripeCheckoutSessionId String?   @unique
+  stripePaymentIntentId   String?   @unique
+  paidAt                  DateTime?
+
+  attendanceMarkedAt DateTime?
+  cancelledAt        DateTime?
+
+  /// Single-use token emailed to the customer when their session is cancelled.
+  rebookToken           String?   @unique
+  /// Set when this row was MOVED off a cancelled session onto a new one.
+  rebookedFromSessionId String?
+  rebookedAt            DateTime?
+
+  /// Lives here, not on Session: reminders are per-booking.
+  reminderSentAt DateTime?
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  operator  Operator   @relation(fields: [operatorId], references: [id])
+  session   Session    @relation(fields: [sessionId], references: [id])
+  customer  Customer   @relation(fields: [customerId], references: [id])
+  emailLogs EmailLog[]
+
+  @@index([sessionId, status])
+  @@index([customerId])
+}
+
+model SessionCancellation {
+  id          String   @id @default(cuid())
+  sessionId   String   @unique
+  /// weather | tide | mechanical | other
+  reason      String
+  /// Free text, shown verbatim in the cancellation email.
+  note        String?
+  cancelledAt DateTime @default(now())
+  cancelledBy String   @default("admin")
+
+  session Session @relation(fields: [sessionId], references: [id])
+}
+
+/// The evidence trail behind "3 customers notified".
+/// Notified count = count(EmailLog where sessionId=X, type='cancellation', status='sent').
+/// One query, one source of truth -- no denormalised counter to drift.
+model EmailLog {
+  id String @id @default(cuid())
+
+  /// booking_confirmation | cancellation | rebook_confirmation | reminder | contact_form
+  type String
+  /// The customer's real address (what we intended).
+  toEmail    String
+  /// Where it actually went (DEMO_EMAIL_REDIRECT, if set).
+  deliveredTo String
+  subject    String
+  /// sent | failed
+  status     String
+  /// Resend message id, or 'local-dev' when running without RESEND_API_KEY.
+  providerId String?
+  error      String?
+
+  bookingId  String?
+  sessionId  String?
+  customerId String?
+
+  createdAt DateTime @default(now())
+
+  booking Booking? @relation(fields: [bookingId], references: [id])
+
+  @@index([sessionId, type])
+  @@index([bookingId])
+}
+
+/// Stripe webhook idempotency. The handler creates this row FIRST, inside the
+/// transaction; a P2002 unique violation means "already processed, return 200".
+/// (Model only -- the handler belongs to the payments specialist.)
+model StripeEvent {
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now())
+}
+
+/// Persisted so a Resend outage cannot silently swallow a lead mid-demo.
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  business  String?
+  message   String
+  createdAt DateTime @default(now())
+}

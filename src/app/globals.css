@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/* Single accent colour. Deliberately no dark-mode block: the admin day view is
+   used outdoors in bright sun and must stay high-contrast dark-on-white. */
+@theme {
+  --color-brand-50: #eef5f9;
+  --color-brand-100: #d5e6ef;
+  --color-brand-200: #a9cddf;
+  --color-brand-500: #14698c;
+  --color-brand-600: #0b4f6c;
+  --color-brand-700: #083a50;
+  --color-brand-800: #062a3a;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+html,
+body {
+  background: #ffffff;
+  color: #0f172a; /* slate-900 */
+}
+
+/* Never let iOS zoom the page when a field is focused on the pontoon. */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
