@@ -7,6 +7,9 @@ import { requireAdmin } from '@/app/admin/actions';
 import { poundsToPence } from '@/lib/money';
 import { londonDateTimeToUtc } from '@/lib/time';
 import { seatsTaken } from '@/lib/availability';
+import { isCancellationReason } from '@/lib/enums';
+import { generateRebookToken } from '@/lib/reference';
+import { sendCancellationEmail } from '@/lib/notifications';
 
 export type SessionFormState = {
   error?: string;
@@ -128,4 +131,78 @@ export async function updateSession(
   revalidatePath(`/admin/sessions/${sessionId}`);
   revalidatePath('/admin/day');
   return {};
+}
+
+export type CancelState = { error?: string };
+
+/**
+ * Cancel a session and tell everyone booked on it.
+ *
+ * Two distinct steps, in this order, and not interchangeable:
+ *
+ *  1. ONE transaction moves the session to cancelled, records why, and flips
+ *     every paid booking to awaiting_rebook with a fresh single-use token.
+ *  2. ONLY THEN are emails sent, one at a time, each writing its own EmailLog
+ *     row.
+ *
+ * Email is never sent inside the transaction. A slow provider would hold the
+ * write lock open on every booking in the session, and more importantly a
+ * rollback cannot unsend a message that has already left -- customers would be
+ * told their session was cancelled when it was not.
+ */
+export async function cancelSession(
+  sessionId: string,
+  _prev: CancelState,
+  formData: FormData,
+): Promise<CancelState> {
+  await requireAdmin();
+
+  const reason = String(formData.get('reason') ?? '');
+  const note = String(formData.get('note') ?? '').trim().slice(0, 500);
+  if (!isCancellationReason(reason)) return { error: 'Pick a reason.' };
+
+  const toNotify = await prisma.$transaction(async (tx) => {
+    // The status predicate is in the WHERE clause, so a double submit matches
+    // zero rows and cannot cancel twice or issue a second set of tokens.
+    const claimed = await tx.session.updateMany({
+      where: { id: sessionId, status: 'scheduled' },
+      data: { status: 'cancelled' },
+    });
+    if (claimed.count === 0) return [];
+
+    await tx.sessionCancellation.create({
+      data: { sessionId, reason, note: note || null, cancelledBy: 'admin' },
+    });
+
+    const paid = await tx.booking.findMany({
+      where: { sessionId, status: 'paid' },
+      select: { id: true },
+    });
+    for (const booking of paid) {
+      await tx.booking.update({
+        where: { id: booking.id },
+        data: { status: 'awaiting_rebook', rebookToken: generateRebookToken() },
+      });
+    }
+
+    // A hold cannot be paid for a session that is no longer running, and
+    // leaving it live would keep it occupying a seat on a cancelled session.
+    await tx.booking.updateMany({
+      where: { sessionId, status: 'pending_payment' },
+      data: { status: 'expired', expiresAt: null },
+    });
+
+    return paid.map((b) => b.id);
+  });
+
+  // One send per booking, each writing an EmailLog row. The result screen
+  // counts those rows -- that count is the "3 customers notified" number.
+  for (const bookingId of toNotify) {
+    await sendCancellationEmail(bookingId);
+  }
+
+  revalidatePath('/admin/sessions');
+  revalidatePath(`/admin/sessions/${sessionId}`);
+  revalidatePath('/admin/day');
+  redirect(`/admin/sessions/${sessionId}/cancel`);
 }
