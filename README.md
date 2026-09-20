@@ -1,18 +1,51 @@
 # Marine Booking
 
-A booking and admin system for small marine businesses — sailing schools, RIB
-charters, paddleboard hire, marine engineers.
+A job, quote and diary system for marine trades — boatyards, surveyors,
+riggers, shipwrights, marine engineers.
 
 Two things live in this one app:
 
 | Route | What it is |
 |---|---|
 | `/` | The **marketing site** for the software business itself. Placeholder trading name, set at the top of `src/app/page.tsx`. |
-| `/book`, `/admin`, … | A **demo booking app** for a fictional operator, "Harbourside Sailing", used to show prospects what they would be buying. |
+| `/book`, `/request`, `/admin`, … | A **demo app** for a fictional yard, "Harbourside Marine", used to show prospects what they would be buying. |
 
 This is a demo, not production software. It is built to click through end to end
-and look credible in front of a customer. See `docs/PLAN.md` for the signed-off
-design and the reasoning behind the data model.
+and look credible in front of a customer.
+
+`docs/PLAN.md` is the original signed-off design. It describes an earlier
+version of this app that sold shared sessions with seats, for sailing schools
+and hire. The app has since been pivoted to marine services; the parts of the
+plan about portability, timezones, capacity and the payments seam still hold,
+but wherever it talks about party size, price per person or seats, the code is
+now the better guide.
+
+## How a job works
+
+The pivot's central change is that **a job exists before it has a price.**
+Every job is quoted on the boat rather than off a price list.
+
+```
+enquiry ──quote──> quoted ──accept──> pending_payment ──pay──> paid ──> completed
+   │                  │                      │                  │
+   │                  └─ declined            └─ expired         └─(slot cancelled)─> awaiting_rebook ──rebook──> paid
+   └─ cancelled
+```
+
+Work arrives two ways, and the only difference is whether a slot is attached:
+
+- **`/book`** — the yard publishes slots it can work (tide windows for lifts)
+  and an owner asks for one.
+- **`/request`** — an owner asks for work with no date, because the yard has to
+  see the boat first. `sessionId` is null until it is quoted.
+
+Both land in the same inbox at `/admin/enquiries`. The yard prices the job and
+picks a slot in one step; the owner accepts with a single-use link; **the
+deposit is created at that moment** and never recomputed afterwards.
+
+A quote does **not** hold a slot. Only a paid job or a live deposit hold
+occupies the yard's diary, so an enquiry nobody replies to cannot block the
+crane indefinitely.
 
 ## Running it locally
 
@@ -58,15 +91,17 @@ need after changing `schema.prisma`.)
 Everything in the seed is positioned relative to *now*, in `Europe/London`, at
 the moment it runs. There are no hardcoded dates. A fresh seed gives you:
 
-- Today's first session at 5 of 6 seats with nothing marked yet — mark people
-  attended live, in front of the prospect
-- A future session reading exactly "1 space left", and another completely empty
-- A live pending payment 20 minutes from lapsing, holding its seats — **this is
-  why you re-seed shortly before the demo, not the night before**; after 20
-  minutes the hold is dead and `npm run check` will tell you so
-- A cancelled session with 3 customers notified, 1 already rebooked, 2 still to
-  pick a date
-- Tomorrow's bookings deliberately un-reminded, so "Send reminders now" does
+- Today's jobs booked in and nothing marked off — mark work done live, in front
+  of the prospect
+- Three enquiries waiting on a price, and two quotes out waiting on the owner —
+  the seed prints a live `/quote/...` link you can accept on camera
+- A future slot reading exactly "1 space left", and another completely empty
+- A live deposit hold 20 minutes from lapsing — **this is why you re-seed
+  shortly before the demo, not the night before**; after 20 minutes the hold is
+  dead and `npm run check` will tell you so
+- A cancelled crane day with 3 owners notified, 1 already rebooked, 2 still to
+  pick a tide, and free lift-in slots for them to move onto
+- Tomorrow's jobs deliberately un-reminded, so "Send reminders now" does
   something visible
 
 `npm run check` asserts each of those is actually true, so a drifted seed is

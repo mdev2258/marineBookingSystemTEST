@@ -96,7 +96,7 @@ export function ContactForm() {
 
       <div>
         <label htmlFor="message" className="mb-1.5 block font-medium">
-          How do bookings reach you at the moment?
+          How does work reach you at the moment?
         </label>
         <textarea
           id="message"

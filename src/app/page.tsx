@@ -6,47 +6,48 @@ const BUSINESS = 'Tidemark Software';
 const CONTACT_EMAIL = 'hello@example.com';
 
 export const metadata = {
-  title: `${BUSINESS} — booking software for small marine businesses`,
+  title: `${BUSINESS} — job and quote software for marine trades`,
   description:
-    'One booking system for sailing schools, RIB charters, paddleboard hire and marine engineers. Setup from £600, then £40 a month.',
+    'One system for boatyards, surveyors, riggers, shipwrights and marine engineers. Enquiries, quotes, deposits and the yard diary in one place. Setup from £600, then £40 a month.',
 };
 
 const PROBLEMS = [
   {
-    title: 'Double bookings',
-    body: 'Three places to look means one of them is always out of date. Everything lands in one diary that you, your instructors and your customers all read from.',
+    title: 'Enquiries that go cold',
+    body: 'A request comes in by phone, another by email, a third through the website. One of them gets written on a pad and never priced. Every job that comes in lands in one list that is not done with until somebody has quoted it.',
   },
   {
-    title: 'Chasing deposits',
-    body: 'Customers pay a deposit the moment they book, by card. No invoices, no bank-transfer reminders, nobody turning up having never paid.',
+    title: 'Quotes chased by phone',
+    body: 'You price the job from the yard on your phone. The owner gets it as an email with the boat, the price and the date on it, and accepts with one tap. The deposit lands without you invoicing anybody.',
   },
   {
-    title: 'Cancelling for weather',
-    body: 'Blow out a session at 06:30 from your phone. Everyone booked on is emailed a rebooking link, their deposit moves with them, and you can see who has picked a new date.',
+    title: 'The tide and the forecast',
+    body: 'Call off a crane day at 06:30 from the slipway. Every owner booked in is emailed the reason and a link to pick a new tide, their deposit moves with them, and you can see who has rebooked and who still needs a ring.',
   },
 ];
 
 const STEPS = [
   {
     title: 'A half-hour call',
-    body: 'You walk me through how bookings reach you now and what actually goes wrong. If it is not a fit, I will say so on the call.',
+    body: 'You walk me through how work reaches you now and what actually goes wrong. If it is not a fit, I will say so on the call.',
   },
   {
     title: 'I set it up around you',
-    body: 'Your sessions, your prices, your deposit terms, your wording. Usually live within two weeks. You do not fill in a setup wizard.',
+    body: 'Your services, your deposit terms, your wording, your tide windows. Usually live within two weeks. You do not fill in a setup wizard.',
   },
   {
-    title: 'You take bookings',
-    body: 'Customers book and pay from their phone. I host it, keep it patched, and answer the phone when something looks wrong.',
+    title: 'You price work and get paid',
+    body: 'Owners ask, you quote, they accept and pay. I host it, keep it patched, and answer the phone when something looks wrong.',
   },
 ];
 
 const INCLUDED = [
-  'Your own booking page, on your domain',
-  'Card deposits taken at the point of booking',
-  'An admin day view built for one thumb on a wet pontoon',
-  'Automatic confirmations and evening-before reminders',
-  'Weather cancellations with one-tap rebooking',
+  'One inbox for every enquiry, by boat',
+  'Quote from your phone; they accept and pay online',
+  'Card deposits taken the moment a quote is accepted',
+  'A yard diary built for one thumb and wet hands',
+  'Vessel records: length, keel, berth, and what you did last time',
+  'Tide and weather cancellations with one-tap rebooking',
   'Hosting, backups, updates and support',
 ];
 
@@ -68,12 +69,12 @@ export default function Home() {
       <main className="mx-auto w-full max-w-3xl px-5">
         <section className="py-14 sm:py-20">
           <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-5xl">
-            Your bookings are scattered across a phone, WhatsApp and a paper diary.
+            Your next job is on a pad, in a text, or in someone&rsquo;s head.
           </h1>
           <p className="mt-6 text-lg leading-relaxed text-slate-700">
-            I build small booking systems for sailing schools, RIB charters, paddleboard hire and
-            marine engineers — one place where every session, deposit and customer lives, that works
-            on a phone in the rain.
+            I build small job and quote systems for boatyards, surveyors, riggers, shipwrights and
+            marine engineers — one place where every enquiry, quote, deposit and boat lives, that
+            works on a phone in the rain.
           </p>
           <p className="mt-8">
             <a
@@ -146,7 +147,7 @@ export default function Home() {
         <section id="contact" className="scroll-mt-16 border-t border-slate-200 py-12 sm:py-16">
           <h2 className="text-2xl font-semibold tracking-tight">Get in touch</h2>
           <p className="mt-3 mb-8 text-slate-700">
-            Tell me roughly how you take bookings today and I will tell you whether this is worth
+            Tell me roughly how work reaches you today and I will tell you whether this is worth
             your money.
           </p>
           <ContactForm />
