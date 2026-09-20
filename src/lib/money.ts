@@ -35,3 +35,20 @@ export function depositPence(
 export function balancePence(total: number, deposit: number): number {
   return Math.max(0, total - deposit);
 }
+
+/**
+ * Admin types prices in pounds; the database only ever holds pence.
+ * Returns null for anything that is not a sane positive amount, so the caller
+ * can report it rather than writing NaN to a column.
+ */
+export function poundsToPence(input: string): number | null {
+  const trimmed = input.trim().replace(/^£/, '');
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
+  // parseFloat('95.50') * 100 is 9550.000000000002; round before it becomes a column.
+  return Math.round(parseFloat(trimmed) * 100);
+}
+
+/** 9500 -> "95.00", for prefilling a number input. */
+export function penceToPoundsInput(pence: number): string {
+  return (pence / 100).toFixed(2);
+}
