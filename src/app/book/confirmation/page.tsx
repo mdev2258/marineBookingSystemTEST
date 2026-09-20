@@ -8,7 +8,7 @@ import { formatDateLong, formatTimeRange } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Booking confirmed — Harbourside Sailing' };
+export const metadata: Metadata = { title: 'Deposit received — Harbourside Marine' };
 
 /**
  * Stripe's success_url lands here with ?cs={CHECKOUT_SESSION_ID}. The demo stub
@@ -36,7 +36,7 @@ export default async function ConfirmationPage(props: PageProps<'/book/confirmat
           01590 000000 and we will check.
         </p>
         <Link href="/book" className="mt-6 inline-block text-brand-700 underline">
-          Back to what&rsquo;s on
+          Back to the yard diary
         </Link>
       </PublicShell>
     );
@@ -44,17 +44,22 @@ export default async function ConfirmationPage(props: PageProps<'/book/confirmat
 
   const booking = await prisma.booking.findUnique({
     where: { reference: result.bookingReference },
-    include: { customer: true, session: { include: { sessionType: true } } },
+    include: {
+      customer: true,
+      vessel: true,
+      session: { include: { sessionType: true } },
+    },
   });
   if (!booking) return null;
 
-  const balance = Math.max(0, booking.totalPence - booking.depositPence);
+  const deposit = booking.depositPence ?? 0;
+  const balance = Math.max(0, (booking.quotedPence ?? 0) - deposit);
 
   return (
     <PublicShell width="narrow">
       <p className="font-semibold text-emerald-700">Deposit received</p>
       <h1 className="mt-2 text-2xl font-semibold tracking-tight">
-        You&rsquo;re booked in, {booking.customer.name.split(' ')[0]}
+        {booking.vessel.name} is booked in
       </h1>
       <p className="mt-3 text-slate-700">
         We&rsquo;ve emailed your confirmation to {booking.customer.email}.
@@ -66,24 +71,35 @@ export default async function ConfirmationPage(props: PageProps<'/book/confirmat
 
         <hr className="my-4 border-slate-200" />
 
-        <p className="font-semibold">{booking.session.sessionType.name}</p>
-        <p className="mt-0.5 text-slate-700">
-          {formatDateLong(booking.session.startsAt)} ·{' '}
-          {formatTimeRange(booking.session.startsAt, booking.session.endsAt)}
-        </p>
-        <p className="mt-2 text-slate-700">
-          {booking.partySize} {booking.partySize === 1 ? 'person' : 'people'} · deposit paid{' '}
-          {formatPence(booking.depositPence)} · {formatPence(balance)} due on the day
+        {booking.session ? (
+          <>
+            <p className="font-semibold">{booking.session.sessionType.name}</p>
+            <p className="mt-0.5 text-slate-700">
+              {formatDateLong(booking.session.startsAt)} ·{' '}
+              {formatTimeRange(booking.session.startsAt, booking.session.endsAt)}
+            </p>
+            {booking.session.notes && (
+              <p className="mt-0.5 font-medium text-brand-700">{booking.session.notes}</p>
+            )}
+          </>
+        ) : (
+          <p className="text-slate-700">We will confirm a date with you shortly.</p>
+        )}
+
+        <p className="mt-3 text-slate-700">
+          Deposit paid {formatPence(deposit)} · {formatPence(balance)} due on completion
         </p>
       </div>
 
-      <p className="mt-5 text-slate-700">Please arrive 15 minutes before your start time.</p>
+      <p className="mt-5 text-slate-700">
+        Please clear the cockpit and side decks, and make sure we can get to her.
+      </p>
 
       <Link
         href={`/booking/${booking.reference}`}
         className="mt-6 inline-block text-brand-700 underline"
       >
-        View your booking
+        View this job
       </Link>
     </PublicShell>
   );

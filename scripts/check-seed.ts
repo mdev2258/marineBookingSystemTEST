@@ -68,6 +68,31 @@ async function main() {
     true,
   );
 
+  // Seeding more jobs into a slot than it holds is easy to do by hand and
+  // invisible until the rebook picker quietly reports no availability.
+  const allSlots = await prisma.session.findMany({ where: { status: 'scheduled' } });
+  const overbooked = await Promise.all(
+    allSlots.map(async (s) => ((await placesTaken(s.id)) > s.capacity ? s.id : null)),
+  );
+  check('no slot is overbooked', overbooked.filter(Boolean).length, 0);
+
+  // The owners left waiting by the cancellation need somewhere to actually go,
+  // or the rebook half of the demo dead-ends.
+  const cancelledSlot = await prisma.session.findFirst({ where: { status: 'cancelled' } });
+  if (cancelledSlot) {
+    const sameService = allSlots.filter(
+      (s) => s.sessionTypeId === cancelledSlot.sessionTypeId && s.startsAt > new Date(),
+    );
+    const roomElsewhere = await Promise.all(
+      sameService.map(async (s) => s.capacity - (await placesTaken(s.id))),
+    );
+    check(
+      'a rebook target with room exists for the cancelled slot',
+      roomElsewhere.some((left) => left > 0),
+      true,
+    );
+  }
+
   // The yard's inbox: the pivot's whole reason for existing.
   check(
     'there are 3 enquiries awaiting a quote',

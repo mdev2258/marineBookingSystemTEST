@@ -3,13 +3,13 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { PublicShell } from '@/components/public-shell';
-import { balancePence, formatPence } from '@/lib/money';
+import { formatPence } from '@/lib/money';
 import { BOOKING_STATUS_LABEL, type BookingStatus } from '@/lib/enums';
 import { formatDateLong, formatTimeRange, minutesUntil } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Your booking — Harbourside Sailing' };
+export const metadata: Metadata = { title: 'Your job — Harbourside Marine' };
 
 /** The reference is the key customers actually have, from their email. */
 export default async function BookingPage(props: PageProps<'/booking/[reference]'>) {
@@ -19,33 +19,35 @@ export default async function BookingPage(props: PageProps<'/booking/[reference]
     where: { reference: reference.toUpperCase() },
     include: {
       customer: true,
+      vessel: true,
       session: { include: { sessionType: true, cancellation: true } },
     },
   });
   if (!booking) notFound();
 
-  const balance = balancePence(booking.totalPence, booking.depositPence);
-  const cancelled = booking.session.status === 'cancelled';
+  const cancelled = booking.session?.status === 'cancelled';
   const holdMinutes = booking.expiresAt ? minutesUntil(booking.expiresAt) : 0;
 
-  // "Deposit paid" under "Status: Awaiting payment" is a contradiction the
-  // customer is right to distrust. Only say paid when it actually was.
-  const settled = !['pending_payment', 'expired'].includes(booking.status);
-  const depositLabel = settled
-    ? 'Deposit paid'
-    : booking.status === 'expired'
-      ? 'Deposit (never paid)'
-      : 'Deposit to pay';
+  const quoted = booking.quotedPence;
+  const deposit = booking.depositPence;
+  const balance = quoted != null ? Math.max(0, quoted - (deposit ?? 0)) : null;
+
+  // A deposit only exists once a quote has been accepted, so nothing here may
+  // say "paid" before that has happened.
+  const depositSettled = ['paid', 'completed', 'no_show', 'awaiting_rebook'].includes(
+    booking.status,
+  );
 
   return (
     <PublicShell width="narrow">
-      <p className="text-sm text-slate-600">Booking reference</p>
+      <p className="text-sm text-slate-600">Reference</p>
       <h1 className="text-2xl font-semibold tracking-tight">{booking.reference}</h1>
+      <p className="mt-1 text-lg font-medium">{booking.vessel.name}</p>
 
       {cancelled && (
         <div className="mt-5 rounded-lg border border-red-300 bg-red-50 p-4">
-          <p className="font-semibold text-red-900">This session was cancelled</p>
-          {booking.session.cancellation?.note && (
+          <p className="font-semibold text-red-900">We had to call this off</p>
+          {booking.session?.cancellation?.note && (
             <p className="mt-1 text-red-900">
               &ldquo;{booking.session.cancellation.note}&rdquo;
             </p>
@@ -59,32 +61,85 @@ export default async function BookingPage(props: PageProps<'/booking/[reference]
         </div>
       )}
 
+      {booking.status === 'enquiry' && (
+        <p className="mt-5 rounded-lg border border-brand-200 bg-brand-50 p-4 text-brand-800">
+          We have your request and we&rsquo;re working out a price. Nothing is booked and nothing
+          is owed yet.
+        </p>
+      )}
+
+      {booking.status === 'quoted' && (
+        <p className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900">
+          Your quote is with you — check your email to accept it. The slot isn&rsquo;t held until
+          you do.
+        </p>
+      )}
+
       {booking.status === 'pending_payment' && holdMinutes > 0 && (
         <p className="mt-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900">
-          We&rsquo;re holding your place for another {holdMinutes} minutes while you pay.
+          We&rsquo;re holding the slot for another {holdMinutes} minutes while the deposit goes
+          through.
         </p>
       )}
 
       <div className="mt-6 rounded-lg border border-slate-200 p-5">
-        <p className="font-semibold">{booking.session.sessionType.name}</p>
-        <p className="mt-0.5 text-slate-700">
-          {formatDateLong(booking.session.startsAt)} ·{' '}
-          {formatTimeRange(booking.session.startsAt, booking.session.endsAt)}
-        </p>
+        {booking.session ? (
+          <>
+            <p className="font-semibold">{booking.session.sessionType.name}</p>
+            <p className="mt-0.5 text-slate-700">
+              {formatDateLong(booking.session.startsAt)} ·{' '}
+              {formatTimeRange(booking.session.startsAt, booking.session.endsAt)}
+            </p>
+            {booking.session.notes && (
+              <p className="mt-0.5 font-medium text-brand-700">{booking.session.notes}</p>
+            )}
+          </>
+        ) : (
+          <p className="font-semibold">Not yet scheduled</p>
+        )}
 
         <hr className="my-4 border-slate-200" />
 
         <dl className="space-y-2">
-          <Row label="Name" value={booking.customer.name} />
           <Row
-            label="Party size"
-            value={`${booking.partySize} ${booking.partySize === 1 ? 'person' : 'people'}`}
+            label="Vessel"
+            value={[
+              booking.vessel.name,
+              booking.vessel.make,
+              booking.vessel.lengthMetres ? `${booking.vessel.lengthMetres}m` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           />
+          <Row label="Owner" value={booking.customer.name} />
           <Row label="Status" value={BOOKING_STATUS_LABEL[booking.status as BookingStatus]} />
-          <Row label="Total" value={formatPence(booking.totalPence)} />
-          <Row label={depositLabel} value={formatPence(booking.depositPence)} />
-          {settled && <Row label="Due on the day" value={formatPence(balance)} />}
+          <Row label="Quote" value={quoted != null ? formatPence(quoted) : 'To be confirmed'} />
+          {deposit != null && (
+            <Row
+              label={depositSettled ? 'Deposit paid' : 'Deposit due'}
+              value={formatPence(deposit)}
+            />
+          )}
+          {depositSettled && balance != null && (
+            <Row label="Due on completion" value={formatPence(balance)} />
+          )}
         </dl>
+
+        {booking.requestNotes && (
+          <>
+            <hr className="my-4 border-slate-200" />
+            <p className="text-sm text-slate-600">What you asked for</p>
+            <p className="mt-1 whitespace-pre-wrap text-slate-800">{booking.requestNotes}</p>
+          </>
+        )}
+
+        {booking.quoteNotes && (
+          <>
+            <hr className="my-4 border-slate-200" />
+            <p className="text-sm text-slate-600">What the quote covers</p>
+            <p className="mt-1 whitespace-pre-wrap text-slate-800">{booking.quoteNotes}</p>
+          </>
+        )}
       </div>
 
       <p className="mt-5 text-slate-700">
@@ -96,7 +151,7 @@ export default async function BookingPage(props: PageProps<'/booking/[reference]
       </p>
 
       <Link href="/book" className="mt-6 inline-block text-brand-700 underline">
-        See what else is on
+        See the yard diary
       </Link>
     </PublicShell>
   );

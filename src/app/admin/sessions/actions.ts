@@ -4,16 +4,15 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/app/admin/actions';
-import { poundsToPence } from '@/lib/money';
 import { londonDateTimeToUtc } from '@/lib/time';
-import { seatsTaken } from '@/lib/availability';
+import { placesTaken } from '@/lib/availability';
 import { isCancellationReason } from '@/lib/enums';
 import { generateRebookToken } from '@/lib/reference';
 import { sendCancellationEmail } from '@/lib/notifications';
 
 export type SessionFormState = {
   error?: string;
-  errors?: Partial<Record<'sessionTypeId' | 'date' | 'time' | 'capacity' | 'price', string>>;
+  errors?: Partial<Record<'sessionTypeId' | 'date' | 'time' | 'capacity', string>>;
 };
 
 type Parsed = {
@@ -21,9 +20,13 @@ type Parsed = {
   date: string;
   time: string;
   capacity: number;
-  pricePerPersonPence: number;
+  notes: string | null;
 };
 
+/**
+ * There is no price here any more. Every job is quoted on the boat, so a slot
+ * carries only when it is, what work it is for, and how many vessels fit.
+ */
 function parse(formData: FormData): { ok: true; value: Parsed } | { ok: false; state: SessionFormState } {
   const errors: SessionFormState['errors'] = {};
 
@@ -31,26 +34,20 @@ function parse(formData: FormData): { ok: true; value: Parsed } | { ok: false; s
   const date = String(formData.get('date') ?? '').trim();
   const time = String(formData.get('time') ?? '').trim();
   const capacityRaw = String(formData.get('capacity') ?? '').trim();
-  const priceRaw = String(formData.get('price') ?? '').trim();
+  const notes = String(formData.get('notes') ?? '').trim().slice(0, 200);
 
-  if (!sessionTypeId) errors.sessionTypeId = 'Pick an activity.';
+  if (!sessionTypeId) errors.sessionTypeId = 'Pick a service.';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) errors.date = 'Pick a date.';
   if (!/^\d{2}:\d{2}$/.test(time)) errors.time = 'Pick a start time.';
 
   const capacity = Number(capacityRaw);
-  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 200) {
-    errors.capacity = 'Capacity must be a whole number of seats.';
+  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 50) {
+    errors.capacity = 'Capacity must be a whole number of vessels.';
   }
-
-  const pricePerPersonPence = poundsToPence(priceRaw);
-  if (pricePerPersonPence === null) errors.price = 'Price should look like 95 or 95.50.';
 
   if (Object.keys(errors).length > 0) return { ok: false, state: { errors } };
 
-  return {
-    ok: true,
-    value: { sessionTypeId, date, time, capacity, pricePerPersonPence: pricePerPersonPence! },
-  };
+  return { ok: true, value: { sessionTypeId, date, time, capacity, notes: notes || null } };
 }
 
 export async function createSession(
@@ -61,10 +58,10 @@ export async function createSession(
 
   const parsed = parse(formData);
   if (!parsed.ok) return parsed.state;
-  const { sessionTypeId, date, time, capacity, pricePerPersonPence } = parsed.value;
+  const { sessionTypeId, date, time, capacity, notes } = parsed.value;
 
   const type = await prisma.sessionType.findUnique({ where: { id: sessionTypeId } });
-  if (!type) return { errors: { sessionTypeId: 'That activity no longer exists.' } };
+  if (!type) return { errors: { sessionTypeId: 'That service no longer exists.' } };
 
   const startsAt = londonDateTimeToUtc(date, time);
   const endsAt = new Date(startsAt.getTime() + type.durationMinutes * 60_000);
@@ -75,10 +72,10 @@ export async function createSession(
       sessionTypeId: type.id,
       startsAt,
       endsAt,
-      // Snapshotted, not read through the relation later: changing the activity's
-      // default price must never silently reprice a session people have booked.
+      // Snapshotted, not read through the relation later: changing the
+      // service's default must not silently resize a slot already booked into.
       capacity,
-      pricePerPersonPence,
+      notes,
     },
   });
 
@@ -96,21 +93,21 @@ export async function updateSession(
 
   const parsed = parse(formData);
   if (!parsed.ok) return parsed.state;
-  const { sessionTypeId, date, time, capacity, pricePerPersonPence } = parsed.value;
+  const { sessionTypeId, date, time, capacity, notes } = parsed.value;
 
   const [existing, type] = await Promise.all([
     prisma.session.findUnique({ where: { id: sessionId } }),
     prisma.sessionType.findUnique({ where: { id: sessionTypeId } }),
   ]);
-  if (!existing) return { error: 'That session no longer exists.' };
-  if (!type) return { errors: { sessionTypeId: 'That activity no longer exists.' } };
+  if (!existing) return { error: 'That slot no longer exists.' };
+  if (!type) return { errors: { sessionTypeId: 'That service no longer exists.' } };
 
-  // Capacity below the seats already sold would make spacesLeft negative and
-  // show a full session as bookable. Refuse rather than silently clamp.
-  const taken = await seatsTaken(sessionId);
+  // Capacity below the vessels already booked in would make spacesLeft
+  // negative and show a full slot as bookable. Refuse rather than clamp.
+  const taken = await placesTaken(sessionId);
   if (capacity < taken) {
     return {
-      errors: { capacity: `${taken} seat${taken === 1 ? ' is' : 's are'} already booked.` },
+      errors: { capacity: `${taken} vessel${taken === 1 ? ' is' : 's are'} already booked in.` },
     };
   }
 
@@ -123,7 +120,7 @@ export async function updateSession(
       startsAt,
       endsAt: new Date(startsAt.getTime() + type.durationMinutes * 60_000),
       capacity,
-      pricePerPersonPence,
+      notes,
     },
   });
 

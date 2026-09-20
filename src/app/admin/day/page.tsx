@@ -4,8 +4,8 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { AdminShell } from '@/components/admin/shell';
 import { AttendanceButtons } from '@/components/admin/attendance-buttons';
-import { seatsTakenBySession, spacesLeftFrom } from '@/lib/availability';
-import { formatPenceShort } from '@/lib/money';
+import { placesTakenBySession, spacesLeftFrom } from '@/lib/availability';
+import { formatPence } from '@/lib/money';
 import {
   addDays,
   formatLondonDateString,
@@ -15,16 +15,16 @@ import {
   todayInLondon,
 } from '@/lib/time';
 
-// Without this a prospect can be shown a cached "3 spaces left" after the last
-// seat has gone.
+// Without this a prospect can be shown a cached "1 space left" after the last
+// place has gone.
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Day view — Harbourside Sailing' };
+export const metadata: Metadata = { title: 'Day view — Harbourside Marine' };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Statuses worth showing a skipper. An expired hold or a refunded cancellation is noise. */
-const VISIBLE = ['paid', 'attended', 'no_show', 'pending_payment', 'awaiting_rebook'] as const;
+/** Statuses worth showing the yard. A lapsed hold or a declined quote is noise. */
+const VISIBLE = ['paid', 'completed', 'no_show', 'pending_payment', 'awaiting_rebook'] as const;
 
 export default async function DayPage(props: PageProps<'/admin/day'>) {
   const params = await props.searchParams;
@@ -47,14 +47,14 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
       bookings: {
         where: { status: { in: [...VISIBLE] } },
         orderBy: { createdAt: 'asc' },
-        include: { customer: true },
+        include: { customer: true, vessel: true },
       },
     },
   });
 
   // One grouped query rather than one per card: this screen is opened on a
   // phone with one bar of signal.
-  const taken = await seatsTakenBySession(sessions.map((s) => s.id), now);
+  const taken = await placesTakenBySession(sessions.map((s) => s.id), now);
   const isToday = date === todayInLondon();
 
   return (
@@ -92,13 +92,13 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
       </div>
 
       {sessions.length === 0 && (
-        <p className="py-16 text-center text-slate-600">Nothing on the water today.</p>
+        <p className="py-16 text-center text-slate-600">Nothing in the yard today.</p>
       )}
 
       <div className="space-y-6 pt-6">
         {sessions.map((session) => {
-          const seats = taken.get(session.id) ?? 0;
-          const left = spacesLeftFrom(session.capacity, seats);
+          const places = taken.get(session.id) ?? 0;
+          const left = spacesLeftFrom(session.capacity, places);
           const cancelled = session.status === 'cancelled';
 
           return (
@@ -107,15 +107,13 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
               className={`rounded-lg border ${cancelled ? 'border-red-300 bg-red-50' : 'border-slate-200'}`}
             >
               <div className="border-b border-inherit p-4">
-                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                  <h2 className="text-lg font-semibold tracking-tight">
-                    {formatTimeRange(session.startsAt, session.endsAt)}
-                  </h2>
-                  <span className="text-sm font-medium text-slate-600">
-                    {formatPenceShort(session.pricePerPersonPence)} pp
-                  </span>
-                </div>
+                <h2 className="text-lg font-semibold tracking-tight">
+                  {formatTimeRange(session.startsAt, session.endsAt)}
+                </h2>
                 <p className="mt-0.5 text-slate-700">{session.sessionType.name}</p>
+                {session.notes && (
+                  <p className="mt-0.5 text-sm font-medium text-brand-700">{session.notes}</p>
+                )}
 
                 <p className="mt-2 text-sm font-medium">
                   {cancelled ? (
@@ -125,7 +123,7 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
                     </span>
                   ) : (
                     <span className="text-slate-700">
-                      {seats} of {session.capacity} booked
+                      {places} of {session.capacity} booked
                       {left > 0 ? ` · ${left} space${left === 1 ? '' : 's'} left` : ' · full'}
                     </span>
                   )}
@@ -135,35 +133,44 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
                   href={`/admin/sessions/${session.id}`}
                   className="mt-2 inline-block text-sm text-brand-700 underline"
                 >
-                  Edit session
+                  Edit slot
                 </Link>
               </div>
 
               {session.bookings.length === 0 ? (
-                <p className="p-4 text-slate-600">No bookings yet.</p>
+                <p className="p-4 text-slate-600">Nothing booked in.</p>
               ) : (
                 <ul className="divide-y divide-slate-200">
                   {session.bookings.map((booking) => {
                     const markable =
                       booking.status === 'paid' ||
-                      booking.status === 'attended' ||
+                      booking.status === 'completed' ||
                       booking.status === 'no_show';
                     const holdMinutes = booking.expiresAt ? minutesUntil(booking.expiresAt, now) : 0;
 
-                    // A lapsed hold has already stopped holding a seat; showing
+                    // A lapsed hold has already stopped holding a place; showing
                     // it as live would contradict the count above.
                     if (booking.status === 'pending_payment' && holdMinutes <= 0) return null;
 
                     return (
                       <li key={booking.id} className="p-4">
-                        <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                          <p className="font-semibold">{booking.customer.name}</p>
-                          <p className="text-sm font-medium text-slate-700">
-                            {booking.partySize} {booking.partySize === 1 ? 'person' : 'people'}
-                          </p>
-                        </div>
+                        {/* Vessel first: the yard thinks in boats, not owners. */}
+                        <p className="font-semibold">{booking.vessel.name}</p>
+                        <p className="text-sm text-slate-700">
+                          {[
+                            booking.vessel.make,
+                            booking.vessel.lengthMetres ? `${booking.vessel.lengthMetres}m` : null,
+                            booking.vessel.keelType ? `${booking.vessel.keelType} keel` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </p>
+                        {booking.vessel.berth && (
+                          <p className="text-sm text-slate-600">{booking.vessel.berth}</p>
+                        )}
 
-                        <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                        <p className="mt-2 text-sm font-medium">{booking.customer.name}</p>
+                        <p className="mt-0.5 flex flex-wrap gap-x-4 gap-y-1 text-sm">
                           {booking.customer.phone && (
                             <a
                               href={`tel:${booking.customer.phone.replace(/\s/g, '')}`}
@@ -180,24 +187,25 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
                           </a>
                         </p>
 
-                        <p className="mt-1 text-sm text-slate-500">{booking.reference}</p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {booking.reference}
+                          {booking.quotedPence != null ? ` · ${formatPence(booking.quotedPence)}` : ''}
+                        </p>
 
                         {booking.status === 'pending_payment' && (
                           <p className="mt-2 text-sm font-medium text-amber-800">
-                            Holding a seat — expires in {holdMinutes} min
+                            Holding the slot — deposit due, expires in {holdMinutes} min
                           </p>
                         )}
                         {booking.status === 'awaiting_rebook' && (
-                          <p className="mt-2 text-sm font-medium text-slate-700">
-                            Awaiting rebook
-                          </p>
+                          <p className="mt-2 text-sm font-medium text-slate-700">Awaiting rebook</p>
                         )}
 
                         {markable && (
                           <AttendanceButtons
                             bookingId={booking.id}
-                            status={booking.status as 'paid' | 'attended' | 'no_show'}
-                            name={booking.customer.name}
+                            status={booking.status as 'paid' | 'completed' | 'no_show'}
+                            vesselName={booking.vessel.name}
                           />
                         )}
                       </li>

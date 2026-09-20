@@ -61,10 +61,12 @@ const VESSELS = [
   { owner: 4, name: 'Solent Mist', make: 'Jeanneau Sun Odyssey 349', lengthMetres: 10.3, keelType: 'Fin', berth: 'Pontoon B, berth 8' },
   { owner: 5, name: 'Perseverance', make: 'Hallberg-Rassy 34', lengthMetres: 10.4, keelType: 'Long', berth: 'Pontoon A, berth 11' },
   { owner: 6, name: 'Halcyon', make: 'Bavaria 38', lengthMetres: 11.5, keelType: 'Fin', berth: 'Pontoon D, berth 2' },
-  { owner: 7, name: 'Windflower', make: 'Fairline Targa 34', lengthMetres: 10.6, keelType: 'Planing', berth: 'Pontoon E, berth 5' },
+  // Motor boats carry no keelType: "Planing keel" is not a thing and a yard
+  // would notice.
+  { owner: 7, name: 'Windflower', make: 'Fairline Targa 34', lengthMetres: 10.6, keelType: null, berth: 'Pontoon E, berth 5' },
   { owner: 8, name: 'Gannet', make: 'Dufour 375', lengthMetres: 11.2, keelType: 'Fin', berth: 'Pontoon B, berth 19' },
   { owner: 9, name: 'Teal', make: 'Westerly Griffon', lengthMetres: 8.2, keelType: 'Bilge', berth: 'Ashore, yard row 4' },
-  { owner: 10, name: 'Cormorant', make: 'Princess 42', lengthMetres: 12.8, keelType: 'Planing', berth: 'Pontoon E, berth 1' },
+  { owner: 10, name: 'Cormorant', make: 'Princess 42', lengthMetres: 12.8, keelType: null, berth: 'Pontoon E, berth 1' },
   { owner: 11, name: 'Mistral', make: 'Beneteau Oceanis 34', lengthMetres: 10.2, keelType: 'Lifting', berth: 'Pontoon C, berth 7' },
   { owner: 12, name: 'Puffin', make: 'Cornish Crabber 24', lengthMetres: 7.3, keelType: 'Long', berth: 'Swinging mooring 12' },
   { owner: 13, name: 'Whimbrel', make: 'Rustler 36', lengthMetres: 11.0, keelType: 'Long', berth: 'Pontoon A, berth 17' },
@@ -74,7 +76,7 @@ const VESSELS = [
   { owner: 17, name: 'Sea Urchin', make: 'Cobra 850', lengthMetres: 8.5, keelType: 'Fin', berth: 'Swinging mooring 6' },
   // Second boats.
   { owner: 0, name: 'Little Auk', make: 'Drascombe Lugger', lengthMetres: 5.7, keelType: 'Lifting', berth: 'Dinghy park 22' },
-  { owner: 10, name: 'Gadwall', make: 'Nordhavn 40', lengthMetres: 12.2, keelType: 'Displacement', berth: 'Pontoon E, berth 3' },
+  { owner: 10, name: 'Gadwall', make: 'Nordhavn 40', lengthMetres: 12.2, keelType: null, berth: 'Pontoon E, berth 3' },
 ];
 
 /** All @example.com, so a stray send with no DEMO_EMAIL_REDIRECT still cannot reach anyone. */
@@ -112,7 +114,12 @@ const SESSIONS: SessionSpec[] = [
   { key: 'f4a', offset: 4, time: '08:30', service: SERVICE.liftout, notes: 'HW Lymington 09:05' }, // empty
   { key: 'f6a', offset: 6, time: '13:30', service: SERVICE.liftin, notes: 'HW Lymington 14:00' }, // rebook target
   { key: 'f7a', offset: 7, time: '09:00', service: SERVICE.rig },
+  // Free lift-in slots, so the owners left waiting by the cancellation above
+  // actually have somewhere to rebook to. Without these the rebook picker
+  // correctly, and very undemonstratively, says "no suitable dates".
+  { key: 'f8a', offset: 8, time: '09:00', service: SERVICE.liftin, notes: 'HW Lymington 09:40' },
   { key: 'f9a', offset: 9, time: '08:30', service: SERVICE.liftout, notes: 'HW Lymington 09:20' }, // live hold
+  { key: 'f10a', offset: 10, time: '14:00', service: SERVICE.liftin, notes: 'HW Lymington 14:35' },
   { key: 'f11a', offset: 11, time: '10:00', service: SERVICE.survey },
 ];
 
@@ -168,8 +175,8 @@ const BOOKINGS: BookingSpec[] = [
 
   // ---- f4a deliberately has no bookings at all.
 
-  // ---- f6a: the rebook target. Carries the job moved off the cancelled slot.
-  { session: 'f6a', vessel: 6, status: 'paid', quotedPounds: 310 },
+  // ---- f6a: a lift-in takes one boat, and that one is the job already moved
+  // off the cancelled slot. Adding a second here would overbook it.
   { session: 'f6a', vessel: 15, status: 'paid', quotedPounds: 275, rebookedFrom: 'cancelled' },
 
   { session: 'f7a', vessel: 8, status: 'paid', quotedPounds: 340 },

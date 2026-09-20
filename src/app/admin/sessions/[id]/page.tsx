@@ -5,14 +5,14 @@ import { prisma } from '@/lib/prisma';
 import { AdminShell } from '@/components/admin/shell';
 import { SessionForm } from '@/components/admin/session-form';
 import { updateSession } from '@/app/admin/sessions/actions';
-import { seatsTaken, spacesLeftFrom } from '@/lib/availability';
+import { placesTaken, spacesLeftFrom } from '@/lib/availability';
 import { formatPence } from '@/lib/money';
 import { BOOKING_STATUS_LABEL, CANCELLATION_REASON_LABEL, type BookingStatus, type CancellationReason } from '@/lib/enums';
 import { formatDateLong, formatTime, formatTimeRange, londonDateString } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Session — Harbourside Sailing' };
+export const metadata: Metadata = { title: 'Slot — Harbourside Marine' };
 
 export default async function SessionDetailPage(props: PageProps<'/admin/sessions/[id]'>) {
   const { id } = await props.params;
@@ -24,7 +24,7 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
       cancellation: true,
       bookings: {
         orderBy: { createdAt: 'asc' },
-        include: { customer: true },
+        include: { customer: true, vessel: true },
       },
     },
   });
@@ -32,7 +32,7 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
 
   const [sessionTypes, taken] = await Promise.all([
     prisma.sessionType.findMany({ where: { active: true }, orderBy: { sortOrder: 'asc' } }),
-    seatsTaken(session.id),
+    placesTaken(session.id),
   ]);
 
   const cancelled = session.status === 'cancelled';
@@ -42,7 +42,7 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
     <AdminShell>
       <div className="py-6">
         <Link href="/admin/sessions" className="text-sm text-brand-700 underline">
-          Back to sessions
+          Back to the diary
         </Link>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight">
           {session.sessionType.name}
@@ -50,6 +50,7 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
         <p className="mt-1 text-slate-700">
           {formatDateLong(session.startsAt)} · {formatTimeRange(session.startsAt, session.endsAt)}
         </p>
+        {session.notes && <p className="mt-1 font-medium text-brand-700">{session.notes}</p>}
         <p className="mt-1 text-slate-700">
           {taken} of {session.capacity} booked{cancelled ? '' : left === 0 ? ' · full' : ` · ${left} left`}
         </p>
@@ -57,7 +58,7 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
 
       {cancelled ? (
         <div className="rounded-lg border border-red-300 bg-red-50 p-4">
-          <h2 className="font-semibold text-red-900">This session is cancelled</h2>
+          <h2 className="font-semibold text-red-900">This slot is cancelled</h2>
           <p className="mt-1 text-red-900">
             Reason:{' '}
             {CANCELLATION_REASON_LABEL[
@@ -88,15 +89,15 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
               date: londonDateString(session.startsAt),
               time: formatTime(session.startsAt),
               capacity: session.capacity,
-              pricePence: session.pricePerPersonPence,
+              notes: session.notes ?? '',
             }}
           />
 
           <div className="mt-10 rounded-lg border border-red-300 p-4">
             <h2 className="font-semibold">Blown out?</h2>
             <p className="mt-1 text-slate-700">
-              Cancelling emails everyone booked on and gives them a link to rebook. Their deposit
-              moves with them.
+              Cancelling emails every owner booked in and gives them a link to rebook. Their
+              deposit moves with them.
             </p>
             <Link
               href={`/admin/sessions/${session.id}/cancel`}
@@ -109,22 +110,29 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
       )}
 
       <h2 className="mt-10 mb-3 text-lg font-semibold tracking-tight">
-        Bookings ({session.bookings.length})
+        Booked in ({session.bookings.length})
       </h2>
 
       {session.bookings.length === 0 ? (
-        <p className="rounded-lg border border-slate-200 p-4 text-slate-600">No bookings yet.</p>
+        <p className="rounded-lg border border-slate-200 p-4 text-slate-600">Nothing booked in.</p>
       ) : (
         <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200">
           {session.bookings.map((booking) => (
             <li key={booking.id} className="p-4">
-              <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                <p className="font-semibold">{booking.customer.name}</p>
-                <p className="text-sm font-medium text-slate-700">
-                  {booking.partySize} {booking.partySize === 1 ? 'person' : 'people'}
-                </p>
-              </div>
-              <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              <p className="font-semibold">{booking.vessel.name}</p>
+              <p className="text-sm text-slate-700">
+                {[
+                  booking.vessel.make,
+                  booking.vessel.lengthMetres ? `${booking.vessel.lengthMetres}m` : null,
+                  booking.vessel.keelType ? `${booking.vessel.keelType} keel` : null,
+                  booking.vessel.berth,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </p>
+
+              <p className="mt-2 text-sm font-medium">{booking.customer.name}</p>
+              <p className="mt-0.5 flex flex-wrap gap-x-4 gap-y-1 text-sm">
                 {booking.customer.phone && (
                   <a
                     href={`tel:${booking.customer.phone.replace(/\s/g, '')}`}
@@ -138,8 +146,10 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
                 </a>
               </p>
               <p className="mt-1 text-sm text-slate-600">
-                {booking.reference} · {BOOKING_STATUS_LABEL[booking.status as BookingStatus]} ·
-                deposit {formatPence(booking.depositPence)}
+                {booking.reference} · {BOOKING_STATUS_LABEL[booking.status as BookingStatus]}
+                {booking.depositPence != null
+                  ? ` · deposit ${formatPence(booking.depositPence)}`
+                  : ''}
               </p>
             </li>
           ))}

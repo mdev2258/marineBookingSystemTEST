@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
-import { hasRoomFor } from '@/lib/availability';
+import { hasRoom } from '@/lib/availability';
 import { sendRebookConfirmationEmail } from '@/lib/notifications';
 
 export type RebookState = { error?: string };
@@ -32,19 +32,21 @@ export async function confirmRebook(
     where: { rebookToken: token, status: 'awaiting_rebook' },
     include: { session: { select: { id: true, sessionTypeId: true } } },
   });
-  if (!booking) return { error: 'That link has already been used.' };
+  // awaiting_rebook always came off a cancelled slot, so session is never null
+  // here -- but the column is nullable, so the compiler is right to ask.
+  if (!booking || !booking.session) return { error: 'That link has already been used.' };
 
   const target = await prisma.session.findUnique({ where: { id: newSessionId } });
   if (!target || target.status !== 'scheduled') {
-    return { error: 'That session is no longer available.' };
+    return { error: 'That slot is no longer available.' };
   }
-  // Same activity only: a keelboat deposit does not entitle you to a RIB.
+  // Same service only: a deposit for a liftout does not entitle you to a survey.
   if (target.sessionTypeId !== booking.session.sessionTypeId) {
-    return { error: 'That session is for a different activity.' };
+    return { error: 'That slot is for different work.' };
   }
-  if (target.startsAt <= new Date()) return { error: 'That session has already started.' };
-  if (!(await hasRoomFor(target, booking.partySize))) {
-    return { error: 'That session just filled up. Please pick another.' };
+  if (target.startsAt <= new Date()) return { error: 'That slot has already passed.' };
+  if (!(await hasRoom(target))) {
+    return { error: 'That slot just filled up. Please pick another.' };
   }
 
   // Token in the WHERE clause, cleared in the same statement: a double submit

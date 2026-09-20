@@ -71,37 +71,39 @@ export async function sendRemindersNow(
 }
 
 /**
- * Mark a booking attended or no-show from the pontoon.
+ * Mark a job done, or the boat not ready, from the yard.
  *
- * Tapping the status a booking already has clears it back to `paid`. That is
+ * Tapping the status a job already has clears it back to `paid`. That is
  * deliberate: this is used one-handed on a wet phone, and a mis-tap with no way
- * back would leave the register wrong with no obvious fix.
+ * back would leave the day's record wrong with no obvious fix.
  */
 export async function markAttendance(
   bookingId: string,
-  status: 'attended' | 'no_show',
+  status: 'completed' | 'no_show',
 ): Promise<void> {
   await requireAdmin();
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    select: { status: true, session: { select: { startsAt: true } } },
+    select: { status: true },
   });
-  if (!booking) throw new Error('Booking not found.');
+  if (!booking) throw new Error('Job not found.');
 
-  // Only a booking that was actually paid for can be marked. A pending hold or
-  // a cancellation has no attendance to record.
-  if (!['paid', 'attended', 'no_show'].includes(booking.status)) {
-    throw new Error('That booking cannot be marked.');
+  // Only a job that has actually been paid for and scheduled can be marked. An
+  // enquiry, a quote or a lapsed hold has no outcome to record.
+  if (!['paid', 'completed', 'no_show'].includes(booking.status)) {
+    throw new Error('That job cannot be marked.');
   }
 
   const clearing = booking.status === status;
+  const now = new Date();
 
   await prisma.booking.update({
     where: { id: bookingId },
     data: {
       status: clearing ? 'paid' : status,
-      attendanceMarkedAt: clearing ? null : new Date(),
+      attendanceMarkedAt: clearing ? null : now,
+      completedAt: !clearing && status === 'completed' ? now : null,
     },
   });
 

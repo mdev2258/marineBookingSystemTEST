@@ -8,7 +8,7 @@ import { todayInLondon } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'New session — Harbourside Sailing' };
+export const metadata: Metadata = { title: 'New slot — Harbourside Marine' };
 
 export default async function NewSessionPage() {
   const sessionTypes = await prisma.sessionType.findMany({
@@ -22,22 +22,22 @@ export default async function NewSessionPage() {
     <AdminShell>
       <div className="py-6">
         <Link href="/admin/sessions" className="text-sm text-brand-700 underline">
-          Back to sessions
+          Back to the diary
         </Link>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight">Create a session</h1>
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight">Open a slot</h1>
       </div>
 
       <SessionForm
         action={createSession}
         mode="create"
         sessionTypes={sessionTypes}
-        submitLabel="Create session"
+        submitLabel="Open slot"
         initial={{
           sessionTypeId: first?.id ?? '',
           date: todayInLondon(),
-          time: '09:30',
-          capacity: first?.defaultCapacity ?? 6,
-          pricePence: first?.defaultPricePence ?? 0,
+          time: '08:30',
+          capacity: first?.defaultCapacity ?? 1,
+          notes: '',
         }}
       />
     </AdminShell>

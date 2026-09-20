@@ -6,6 +6,8 @@ import type { RebookState } from '@/app/rebook/actions';
 export type RebookOption = {
   id: string;
   when: string;
+  /** Tide or access note, shown because it decides whether the date works. */
+  note?: string | null;
   spacesLeft: number;
 };
 
@@ -39,6 +41,9 @@ export function RebookPicker({
               />
               <span>
                 <span className="block font-semibold">{option.when}</span>
+                {option.note && (
+                  <span className="block text-sm font-medium text-brand-700">{option.note}</span>
+                )}
                 <span className="block text-sm text-slate-600">
                   {option.spacesLeft} space{option.spacesLeft === 1 ? '' : 's'} left
                 </span>

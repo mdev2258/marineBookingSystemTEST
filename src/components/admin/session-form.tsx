@@ -2,14 +2,13 @@
 
 import { useActionState, useState } from 'react';
 import type { SessionFormState } from '@/app/admin/sessions/actions';
-import { penceToPoundsInput } from '@/lib/money';
 
 export type SessionTypeOption = {
   id: string;
   name: string;
   durationMinutes: number;
   defaultCapacity: number;
-  defaultPricePence: number;
+  tideDependent: boolean;
 };
 
 const field =
@@ -22,10 +21,13 @@ function Error({ message }: { message?: string }) {
 }
 
 /**
- * Shared by "new session" and "edit session". On create, switching the activity
- * refills capacity and price from that activity's defaults; on edit it does not,
- * because those two columns are a snapshot the operator may have deliberately
- * moved away from the default.
+ * Shared by "new slot" and "edit slot". There is no price field: every job is
+ * quoted on the boat, so a slot only says when it is, what work it is for, and
+ * how many vessels fit.
+ *
+ * On create, switching the service refills capacity from that service's
+ * default; on edit it does not, because capacity is a snapshot the yard may
+ * have deliberately moved away from the default.
  */
 export function SessionForm({
   action,
@@ -37,22 +39,19 @@ export function SessionForm({
   action: (prev: SessionFormState, formData: FormData) => Promise<SessionFormState>;
   sessionTypes: SessionTypeOption[];
   mode: 'create' | 'edit';
-  initial: { sessionTypeId: string; date: string; time: string; capacity: number; pricePence: number };
+  initial: { sessionTypeId: string; date: string; time: string; capacity: number; notes: string };
   submitLabel: string;
 }) {
   const [state, formAction, pending] = useActionState<SessionFormState, FormData>(action, {});
 
   const [sessionTypeId, setSessionTypeId] = useState(initial.sessionTypeId);
   const [capacity, setCapacity] = useState(String(initial.capacity));
-  const [price, setPrice] = useState(penceToPoundsInput(initial.pricePence));
 
   function chooseType(id: string) {
     setSessionTypeId(id);
     if (mode !== 'create') return;
     const type = sessionTypes.find((t) => t.id === id);
-    if (!type) return;
-    setCapacity(String(type.defaultCapacity));
-    setPrice(penceToPoundsInput(type.defaultPricePence));
+    if (type) setCapacity(String(type.defaultCapacity));
   }
 
   const selected = sessionTypes.find((t) => t.id === sessionTypeId);
@@ -61,7 +60,7 @@ export function SessionForm({
     <form action={formAction} className="space-y-5">
       <div>
         <label htmlFor="sessionTypeId" className="mb-1.5 block font-medium">
-          Activity
+          Service
         </label>
         <select
           id="sessionTypeId"
@@ -79,7 +78,8 @@ export function SessionForm({
         </select>
         {selected && (
           <p className="mt-1.5 text-sm text-slate-600">
-            Runs for {selected.durationMinutes} minutes. The finish time follows from this.
+            Allow {selected.durationMinutes} minutes. The finish time follows from this.
+            {selected.tideDependent ? ' Tidal — check the window before you publish it.' : ''}
           </p>
         )}
         <Error message={state.errors?.sessionTypeId} />
@@ -102,37 +102,39 @@ export function SessionForm({
         </div>
       </div>
 
-      <div className="grid gap-5 sm:grid-cols-2">
-        <div>
-          <label htmlFor="capacity" className="mb-1.5 block font-medium">
-            Capacity
-          </label>
-          <input
-            id="capacity"
-            name="capacity"
-            type="number"
-            inputMode="numeric"
-            min={1}
-            value={capacity}
-            onChange={(e) => setCapacity(e.target.value)}
-            className={field}
-          />
-          <Error message={state.errors?.capacity} />
-        </div>
-        <div>
-          <label htmlFor="price" className="mb-1.5 block font-medium">
-            Price per person (£)
-          </label>
-          <input
-            id="price"
-            name="price"
-            inputMode="decimal"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            className={field}
-          />
-          <Error message={state.errors?.price} />
-        </div>
+      <div>
+        <label htmlFor="capacity" className="mb-1.5 block font-medium">
+          How many vessels?
+        </label>
+        <input
+          id="capacity"
+          name="capacity"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          value={capacity}
+          onChange={(e) => setCapacity(e.target.value)}
+          className={`${field} sm:max-w-40`}
+        />
+        <p className="mt-1.5 text-sm text-slate-600">
+          A crane takes one at a time; a surveyor might do two in a day.
+        </p>
+        <Error message={state.errors?.capacity} />
+      </div>
+
+      <div>
+        <label htmlFor="notes" className="mb-1.5 block font-medium">
+          Tide or access note <span className="font-normal text-slate-500">(optional)</span>
+        </label>
+        <input
+          id="notes"
+          name="notes"
+          maxLength={200}
+          defaultValue={initial.notes}
+          placeholder="HW Lymington 11:20"
+          className={field}
+        />
+        <p className="mt-1.5 text-sm text-slate-600">Shown to the customer on the slot.</p>
       </div>
 
       {state.error && (

@@ -1,8 +1,7 @@
 'use client';
 
-import { useActionState, useState } from 'react';
-import type { BookingState } from '@/app/book/actions';
-import { formatPence } from '@/lib/money';
+import { useActionState } from 'react';
+import type { RequestState } from '@/app/book/actions';
 
 const field =
   'w-full rounded-md border border-slate-300 bg-white px-3 py-3 text-slate-900 ' +
@@ -13,118 +12,143 @@ function Err({ message }: { message?: string }) {
   return <p className="mt-1.5 text-sm font-medium text-red-700">{message}</p>;
 }
 
+/**
+ * The owner's side of a job request. Boat first, owner second -- that is the
+ * order a yard asks in, and the keel type genuinely decides whether they can
+ * lift her.
+ *
+ * There is no price anywhere on this form and no payment at the end of it. The
+ * submit button promises a quote, not a charge, because taking money before
+ * anyone has seen the boat is exactly what this yard does not do.
+ */
 export function BookingForm({
   action,
-  pricePerPersonPence,
-  depositPercent,
-  spacesLeft,
+  submitLabel = 'Ask for a quote',
 }: {
-  action: (prev: BookingState, formData: FormData) => Promise<BookingState>;
-  pricePerPersonPence: number;
-  depositPercent: number;
-  spacesLeft: number;
+  action: (prev: RequestState, formData: FormData) => Promise<RequestState>;
+  submitLabel?: string;
 }) {
-  const [state, formAction, pending] = useActionState<BookingState, FormData>(action, {});
-  const [partySize, setPartySize] = useState(1);
-
-  // Recomputed here for display only. The figure that gets charged is computed
-  // once on the server at creation and frozen on the row.
-  const total = partySize * pricePerPersonPence;
-  const deposit = Math.round((depositPercent / 100) * total);
-
-  const step = (by: number) =>
-    setPartySize((n) => Math.min(spacesLeft, Math.max(1, n + by)));
-
-  const stepper =
-    'flex h-12 w-12 shrink-0 items-center justify-center rounded-md border-2 border-slate-300 ' +
-    'text-2xl font-semibold disabled:opacity-40';
+  const [state, formAction, pending] = useActionState<RequestState, FormData>(action, {});
 
   return (
-    <form action={formAction} className="space-y-5">
-      <div>
-        <label htmlFor="name" className="mb-1.5 block font-medium">
-          Name
-        </label>
-        <input id="name" name="name" autoComplete="name" className={field} />
-        <Err message={state.errors?.name} />
-      </div>
+    <form action={formAction} className="space-y-6">
+      <fieldset className="space-y-5">
+        <legend className="mb-1 text-lg font-semibold tracking-tight">The boat</legend>
 
-      <div>
-        <label htmlFor="email" className="mb-1.5 block font-medium">
-          Email
-        </label>
-        <input
-          id="email"
-          name="email"
-          type="email"
-          inputMode="email"
-          autoComplete="email"
-          className={field}
-        />
-        <Err message={state.errors?.email} />
-      </div>
-
-      <div>
-        <label htmlFor="phone" className="mb-1.5 block font-medium">
-          Mobile
-        </label>
-        <input
-          id="phone"
-          name="phone"
-          type="tel"
-          inputMode="tel"
-          autoComplete="tel"
-          className={field}
-        />
-        <Err message={state.errors?.phone} />
-        <p className="mt-1.5 text-sm text-slate-600">
-          Only used if we have to reach you about this session.
-        </p>
-      </div>
-
-      <div>
-        <span className="mb-1.5 block font-medium">How many of you?</span>
-        {/* A stepper, not a number spinner: the arrows on a mobile number input
-            are a 10px target, and this is filled in outdoors. */}
-        <div className="flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => step(-1)}
-            disabled={partySize <= 1}
-            aria-label="One fewer person"
-            className={stepper}
-          >
-            −
-          </button>
-          <output className="w-10 text-center text-xl font-semibold" aria-live="polite">
-            {partySize}
-          </output>
-          <button
-            type="button"
-            onClick={() => step(1)}
-            disabled={partySize >= spacesLeft}
-            aria-label="One more person"
-            className={stepper}
-          >
-            +
-          </button>
-          <span className="text-sm text-slate-600">{spacesLeft} can still book</span>
+        <div>
+          <label htmlFor="vesselName" className="mb-1.5 block font-medium">
+            Name
+          </label>
+          <input id="vesselName" name="vesselName" className={field} placeholder="Kittiwake" />
+          <Err message={state.errors?.vesselName} />
         </div>
-        <input type="hidden" name="partySize" value={partySize} />
-        <Err message={state.errors?.partySize} />
+
+        <div className="grid gap-5 sm:grid-cols-2">
+          <div>
+            <label htmlFor="make" className="mb-1.5 block font-medium">
+              Make and model <span className="font-normal text-slate-500">(optional)</span>
+            </label>
+            <input id="make" name="make" className={field} placeholder="Westerly Konsort" />
+          </div>
+          <div>
+            <label htmlFor="lengthMetres" className="mb-1.5 block font-medium">
+              Length overall (m)
+            </label>
+            <input
+              id="lengthMetres"
+              name="lengthMetres"
+              inputMode="decimal"
+              className={field}
+              placeholder="8.8"
+            />
+            <Err message={state.errors?.lengthMetres} />
+          </div>
+        </div>
+
+        <div className="grid gap-5 sm:grid-cols-2">
+          <div>
+            <label htmlFor="keelType" className="mb-1.5 block font-medium">
+              Keel
+            </label>
+            <select id="keelType" name="keelType" className={field} defaultValue="">
+              <option value="">Motor boat, or not sure</option>
+              <option>Fin</option>
+              <option>Bilge</option>
+              <option>Long</option>
+              <option>Lifting</option>
+            </select>
+            <p className="mt-1.5 text-sm text-slate-600">Decides how we strop her.</p>
+          </div>
+          <div>
+            <label htmlFor="berth" className="mb-1.5 block font-medium">
+              Where is she? <span className="font-normal text-slate-500">(optional)</span>
+            </label>
+            <input id="berth" name="berth" className={field} placeholder="Pontoon C, berth 14" />
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset className="space-y-5">
+        <legend className="mb-1 text-lg font-semibold tracking-tight">You</legend>
+
+        <div>
+          <label htmlFor="name" className="mb-1.5 block font-medium">
+            Name
+          </label>
+          <input id="name" name="name" autoComplete="name" className={field} />
+          <Err message={state.errors?.name} />
+        </div>
+
+        <div className="grid gap-5 sm:grid-cols-2">
+          <div>
+            <label htmlFor="email" className="mb-1.5 block font-medium">
+              Email
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              className={field}
+            />
+            <Err message={state.errors?.email} />
+          </div>
+          <div>
+            <label htmlFor="phone" className="mb-1.5 block font-medium">
+              Mobile
+            </label>
+            <input
+              id="phone"
+              name="phone"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              className={field}
+            />
+            <Err message={state.errors?.phone} />
+          </div>
+        </div>
+      </fieldset>
+
+      <div>
+        <label htmlFor="requestNotes" className="mb-1.5 block font-medium">
+          What do you need doing?
+        </label>
+        <textarea
+          id="requestNotes"
+          name="requestNotes"
+          rows={4}
+          className={field}
+          placeholder="Lift and scrub before the winter, and could you look at a soft patch by the forehatch while she is ashore."
+        />
+        <Err message={state.errors?.requestNotes} />
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <div className="flex justify-between">
-          <span className="text-slate-700">Total</span>
-          <span className="font-medium">{formatPence(total)}</span>
-        </div>
-        <div className="mt-1 flex justify-between text-lg font-semibold">
-          <span>Deposit today</span>
-          <span>{formatPence(deposit)}</span>
-        </div>
-        <p className="mt-1 text-sm text-slate-600">
-          The remaining {formatPence(total - deposit)} is due on the day.
+        <p className="font-medium">We quote on the boat, not off a price list.</p>
+        <p className="mt-1 text-sm text-slate-700">
+          Nothing is booked and nothing is owed until you have seen the price and said yes.
         </p>
       </div>
 
@@ -139,7 +163,7 @@ export function BookingForm({
         disabled={pending}
         className="min-h-12 w-full rounded-md bg-brand-600 px-5 font-semibold text-white hover:bg-brand-700 focus:outline-2 focus:outline-offset-2 focus:outline-brand-600 disabled:opacity-60"
       >
-        {pending ? 'Just a moment…' : `Pay ${formatPence(deposit)} deposit`}
+        {pending ? 'Sending…' : submitLabel}
       </button>
     </form>
   );

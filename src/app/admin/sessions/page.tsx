@@ -3,13 +3,12 @@ import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { AdminShell } from '@/components/admin/shell';
 import { ReminderButton } from '@/components/admin/reminder-button';
-import { seatsTakenBySession, spacesLeftFrom } from '@/lib/availability';
-import { formatPenceShort } from '@/lib/money';
+import { placesTakenBySession, spacesLeftFrom } from '@/lib/availability';
 import { addDays, formatDateShort, formatTimeRange, londonDayBounds, todayInLondon } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Sessions — Harbourside Sailing' };
+export const metadata: Metadata = { title: 'Diary — Harbourside Marine' };
 
 export default async function SessionsPage() {
   const now = new Date();
@@ -20,7 +19,7 @@ export default async function SessionsPage() {
     include: { sessionType: true },
   });
 
-  const taken = await seatsTakenBySession(sessions.map((s) => s.id), now);
+  const taken = await placesTakenBySession(sessions.map((s) => s.id), now);
 
   // Same predicate the cron uses, so the count and the button agree.
   const tomorrow = londonDayBounds(addDays(todayInLondon(now), 1));
@@ -35,12 +34,12 @@ export default async function SessionsPage() {
   return (
     <AdminShell>
       <div className="flex flex-wrap items-center justify-between gap-3 py-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Upcoming sessions</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">The diary</h1>
         <Link
           href="/admin/sessions/new"
           className="inline-flex min-h-12 items-center justify-center rounded-md bg-brand-600 px-5 font-semibold text-white hover:bg-brand-700"
         >
-          Create session
+          Open a slot
         </Link>
       </div>
 
@@ -72,11 +71,11 @@ export default async function SessionsPage() {
                       {formatDateShort(session.startsAt)} ·{' '}
                       {formatTimeRange(session.startsAt, session.endsAt)}
                     </p>
-                    <p className="text-sm font-medium text-slate-600">
-                      {formatPenceShort(session.pricePerPersonPence)} pp
-                    </p>
                   </div>
                   <p className="mt-0.5 text-slate-700">{session.sessionType.name}</p>
+                  {session.notes && (
+                    <p className="mt-0.5 text-sm font-medium text-brand-700">{session.notes}</p>
+                  )}
 
                   {cancelled ? (
                     <p className="mt-2 text-sm font-semibold text-red-800">Cancelled</p>

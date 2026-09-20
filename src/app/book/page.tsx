@@ -2,15 +2,14 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
 import { PublicShell } from '@/components/public-shell';
-import { seatsTakenBySession, spacesLeftFrom } from '@/lib/availability';
-import { formatPenceShort } from '@/lib/money';
+import { placesTakenBySession, spacesLeftFrom } from '@/lib/availability';
 import { formatDateShort, formatTimeRange } from '@/lib/time';
 
 // Without this a prospect is shown a cached "3 spaces left" after the last seat
 // has gone.
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Book a session — Harbourside Sailing' };
+export const metadata: Metadata = { title: 'Yard diary — Harbourside Marine' };
 
 export default async function BookPage(props: PageProps<'/book'>) {
   const params = await props.searchParams;
@@ -30,13 +29,14 @@ export default async function BookPage(props: PageProps<'/book'>) {
     }),
   ]);
 
-  const taken = await seatsTakenBySession(sessions.map((s) => s.id), now);
+  const taken = await placesTakenBySession(sessions.map((s) => s.id), now);
 
   return (
     <PublicShell>
-      <h1 className="text-2xl font-semibold tracking-tight">What&rsquo;s on</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">Yard diary</h1>
       <p className="mt-2 text-slate-700">
-        Pay a 50% deposit to hold your place. The rest is due on the day.
+        Ask for a slot and we will come back with a price for your boat. Nothing is owed until you
+        accept the quote.
       </p>
 
       <div className="mt-6 flex flex-wrap gap-2">
@@ -71,24 +71,30 @@ export default async function BookPage(props: PageProps<'/book'>) {
                       {formatDateShort(session.startsAt)} ·{' '}
                       {formatTimeRange(session.startsAt, session.endsAt)}
                     </p>
-                    <p className="font-medium">{formatPenceShort(session.pricePerPersonPence)} pp</p>
                   </div>
                   <p className="mt-0.5 text-slate-700">{session.sessionType.name}</p>
+                  {session.notes && (
+                    <p className="mt-0.5 text-sm font-medium text-brand-700">{session.notes}</p>
+                  )}
 
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                     <p
                       className={`text-sm font-medium ${
-                        full ? 'text-slate-600' : left <= 2 ? 'text-red-700' : 'text-slate-700'
+                        full ? 'text-slate-600' : left === 1 ? 'text-red-700' : 'text-slate-700'
                       }`}
                     >
-                      {full ? 'Fully booked' : `${left} space${left === 1 ? '' : 's'} left`}
+                      {full
+                        ? 'Taken'
+                        : left === 1
+                          ? 'One space left'
+                          : `${left} spaces left`}
                     </p>
                     {!full && (
                       <Link
                         href={`/book/${session.id}`}
                         className="inline-flex min-h-12 items-center justify-center rounded-md bg-brand-600 px-5 font-semibold text-white hover:bg-brand-700"
                       >
-                        Book
+                        Ask for this slot
                       </Link>
                     )}
                   </div>
