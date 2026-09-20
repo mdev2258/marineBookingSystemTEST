@@ -1,0 +1,93 @@
+'use server';
+
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { revalidatePath } from 'next/cache';
+import { prisma } from '@/lib/prisma';
+import {
+  ADMIN_COOKIE,
+  adminCookieOptions,
+  credentialsAreValid,
+  signAdminToken,
+  verifyAdminToken,
+} from '@/lib/auth';
+
+/**
+ * src/proxy.ts already guards /admin/*, but a Server Action is a POST endpoint
+ * in its own right and is reachable by anyone who knows its id. Every action
+ * below re-checks the cookie itself rather than trusting the proxy -- the proxy
+ * is a redirect for humans, not an authorisation boundary for requests.
+ */
+export async function requireAdmin(): Promise<void> {
+  const store = await cookies();
+  if (!(await verifyAdminToken(store.get(ADMIN_COOKIE)?.value))) {
+    throw new Error('Not authorised.');
+  }
+}
+
+export type LoginState = { error?: string };
+
+export async function adminLogin(_prev: LoginState, formData: FormData): Promise<LoginState> {
+  const username = String(formData.get('username') ?? '').trim();
+  const password = String(formData.get('password') ?? '');
+  const next = String(formData.get('next') ?? '');
+
+  if (!credentialsAreValid(username, password)) {
+    // One message for both cases: naming which half was wrong tells an attacker
+    // when they have found a real username.
+    return { error: 'Those details were not recognised.' };
+  }
+
+  const store = await cookies();
+  store.set(ADMIN_COOKIE, await signAdminToken(username), adminCookieOptions());
+
+  // `next` arrives from the query string, so it is attacker-controlled. Only a
+  // path inside /admin is allowed through; anything else is an open redirect.
+  const target = next.startsWith('/admin') && !next.startsWith('//') ? next : '/admin';
+  redirect(target);
+}
+
+export async function adminLogout(): Promise<void> {
+  const store = await cookies();
+  store.delete(ADMIN_COOKIE);
+  redirect('/admin/login');
+}
+
+/**
+ * Mark a booking attended or no-show from the pontoon.
+ *
+ * Tapping the status a booking already has clears it back to `paid`. That is
+ * deliberate: this is used one-handed on a wet phone, and a mis-tap with no way
+ * back would leave the register wrong with no obvious fix.
+ */
+export async function markAttendance(
+  bookingId: string,
+  status: 'attended' | 'no_show',
+): Promise<void> {
+  await requireAdmin();
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    select: { status: true, session: { select: { startsAt: true } } },
+  });
+  if (!booking) throw new Error('Booking not found.');
+
+  // Only a booking that was actually paid for can be marked. A pending hold or
+  // a cancellation has no attendance to record.
+  if (!['paid', 'attended', 'no_show'].includes(booking.status)) {
+    throw new Error('That booking cannot be marked.');
+  }
+
+  const clearing = booking.status === status;
+
+  await prisma.booking.update({
+    where: { id: bookingId },
+    data: {
+      status: clearing ? 'paid' : status,
+      attendanceMarkedAt: clearing ? null : new Date(),
+    },
+  });
+
+  revalidatePath('/admin/day');
+  revalidatePath('/admin/sessions');
+}
