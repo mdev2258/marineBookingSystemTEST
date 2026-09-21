@@ -28,7 +28,7 @@ export function RebookPicker({
           {options.map((option, i) => (
             <label
               key={option.id}
-              className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border-2 border-slate-300 p-4 hover:border-brand-500 has-checked:border-brand-600 has-checked:bg-brand-50"
+              className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border-2 border-neutral-300 p-4 hover:border-brand-500 has-checked:border-brand-600 has-checked:bg-brand-50"
             >
               <input
                 type="radio"
@@ -44,7 +44,7 @@ export function RebookPicker({
                 {option.note && (
                   <span className="block text-sm font-medium text-brand-700">{option.note}</span>
                 )}
-                <span className="block text-sm text-slate-600">
+                <span className="block text-sm text-neutral-600">
                   {option.spacesLeft} space{option.spacesLeft === 1 ? '' : 's'} left
                 </span>
               </span>
@@ -66,7 +66,7 @@ export function RebookPicker({
       >
         {pending ? 'Moving your booking…' : 'Confirm new date'}
       </button>
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-neutral-600">
         Nothing further to pay — your deposit moves with you.
       </p>
     </form>

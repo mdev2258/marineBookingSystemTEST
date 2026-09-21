@@ -1,27 +1,177 @@
 @import "tailwindcss";
 
-/* Single accent colour. Deliberately no dark-mode block: the admin day view is
-   used outdoors in bright sun and must stay high-contrast dark-on-white. */
+/* ═══════════════════════════════════════════════════════════════════════
+   Industry design system.
+   Tokens ported from the handoff bundle's Industry stylesheet rather than
+   transcribed by eye. See docs/DESIGN.md.
+
+   The look is a wireframe: steel blue on a light technical ground, condensed
+   headings, square corners, hairline borders, and + registration marks at the
+   corners of framed objects.
+   ═══════════════════════════════════════════════════════════════════════ */
 @theme {
-  --color-brand-50: #eef5f9;
-  --color-brand-100: #d5e6ef;
-  --color-brand-200: #a9cddf;
-  --color-brand-500: #14698c;
-  --color-brand-600: #0b4f6c;
-  --color-brand-700: #083a50;
-  --color-brand-800: #062a3a;
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  /* Ground and ink */
+  --color-bg: #f2f2f3;
+  --color-surface: #e9e9ea;
+  --color-ink: #1d1f20;
+  --color-divider: color-mix(in srgb, #1d1f20 16%, transparent);
+
+  /* Accent ramp (steel). The only hue in the system. */
+  --color-accent: #5980a6;
+  --color-accent-100: #eef6ff;
+  --color-accent-200: #d6ebff;
+  --color-accent-300: #b5d9fd;
+  --color-accent-400: #94bce3;
+  --color-accent-500: #749dc4;
+  --color-accent-600: #597ea3;
+  --color-accent-700: #416180;
+  --color-accent-800: #2c455d;
+  --color-accent-900: #1d2d3d;
+
+  --color-neutral-100: #f5f5f8;
+  --color-neutral-200: #e7e7ea;
+  --color-neutral-300: #d4d4d7;
+  --color-neutral-400: #b7b7ba;
+  --color-neutral-500: #98989b;
+  --color-neutral-600: #7a7a7d;
+  --color-neutral-700: #5d5d60;
+  --color-neutral-800: #424244;
+  --color-neutral-900: #2b2b2d;
+
+  /* The app was built against a `brand-*` scale. Rather than rewrite every
+     className, the old names are re-pointed at the steel ramp: the whole app
+     moves onto the design system from this block alone. */
+  --color-brand-50: #eef6ff;
+  --color-brand-100: #d6ebff;
+  --color-brand-200: #b5d9fd;
+  --color-brand-500: #749dc4;
+  --color-brand-600: #5980a6;
+  --color-brand-700: #416180;
+  --color-brand-800: #2c455d;
+
+  --font-sans: var(--font-barlow), ui-sans-serif, system-ui, sans-serif;
+  --font-condensed: var(--font-barlow-condensed), ui-sans-serif, system-ui, sans-serif;
+
+  /* RULE 1 OF THE SYSTEM: nothing is rounded. Zeroing the scale means every
+     existing rounded-md / rounded-lg / rounded-full in the codebase becomes a
+     no-op, instead of needing to be hunted down and deleted. */
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius-4xl: 0px;
 }
 
 html,
 body {
-  background: #ffffff;
-  color: #0f172a; /* slate-900 */
+  background: var(--color-bg);
+  color: var(--color-ink);
 }
 
-/* Never let iOS zoom the page when a field is focused on the pontoon. */
+/* Headings are condensed throughout; body copy is not. */
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  line-height: 1.08;
+}
+
+/* Never let iOS zoom the page when a field is focused down at the slipway. */
 input,
 select,
 textarea {
   font-size: 16px;
+}
+
+/* System-defined focus. Never the browser default. */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+/* ── Registration marks ──────────────────────────────────────────────────
+   A framed object carries a + at each corner, straddling the border. Drawn
+   in CSS rather than as four elements per card; see the Plate component,
+   which is the only thing that should apply this class. */
+.blueprint {
+  position: relative;
+  border: 1px solid var(--color-divider);
+  border-radius: 0;
+}
+.blueprint > .corner {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  color: color-mix(in srgb, var(--color-ink) 55%, transparent);
+  pointer-events: none;
+}
+.blueprint > .corner::before,
+.blueprint > .corner::after {
+  content: "";
+  position: absolute;
+  background: currentColor;
+}
+.blueprint > .corner::before {
+  left: 5px;
+  top: 0;
+  width: 1px;
+  height: 100%;
+}
+.blueprint > .corner::after {
+  top: 5px;
+  left: 0;
+  width: 100%;
+  height: 1px;
+}
+.blueprint > .corner.tl { top: -6px; left: -6px; }
+.blueprint > .corner.tr { top: -6px; right: -6px; }
+.blueprint > .corner.bl { bottom: -6px; left: -6px; }
+.blueprint > .corner.br { bottom: -6px; right: -6px; }
+
+/* On a dark field the marks have to reverse or they vanish. */
+.blueprint.on-dark > .corner {
+  color: color-mix(in srgb, var(--color-bg) 55%, transparent);
+}
+
+/* ── Kicker ──────────────────────────────────────────────────────────────
+   The small uppercase label above a title. Used constantly by the system. */
+.k {
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: 10px;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+/* ── Reference code (HS-7QK2ND) ─────────────────────────────────────────── */
+.ref {
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+}
+
+/* Big condensed numerals, for stat cells and quote totals. */
+.numeric {
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Muted body text, per the system's mix rather than a grey token. */
+.muted {
+  color: color-mix(in srgb, var(--color-ink) 58%, transparent);
 }

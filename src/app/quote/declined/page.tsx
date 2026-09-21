@@ -8,11 +8,11 @@ export default function QuoteDeclinedPage() {
   return (
     <PublicShell width="narrow">
       <h1 className="text-2xl font-semibold tracking-tight">Right you are</h1>
-      <p className="mt-3 text-slate-700">
+      <p className="mt-3 text-neutral-700">
         We have marked that one as declined and released the date. Nothing has been charged and
         there is nothing else you need to do.
       </p>
-      <p className="mt-3 text-slate-700">
+      <p className="mt-3 text-neutral-700">
         If it was the price rather than the work, ring us on{' '}
         <a href="tel:01590000000" className="text-brand-700 underline">
           01590 000000

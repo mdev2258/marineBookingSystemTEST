@@ -6,7 +6,7 @@ import type { QuoteState } from '@/app/admin/enquiries/actions';
 export type SlotOption = { id: string; label: string };
 
 const field =
-  'w-full rounded-md border border-slate-300 bg-white px-3 py-3 text-slate-900 ' +
+  'w-full rounded-md border border-neutral-300 bg-white px-3 py-3 text-ink ' +
   'focus:border-brand-600 focus:outline-2 focus:outline-offset-2 focus:outline-brand-600';
 
 function Err({ message }: { message?: string }) {
@@ -49,7 +49,7 @@ export function QuoteForm({
   }
 
   return (
-    <form action={formAction} className="mt-3 space-y-4 border-t border-slate-200 pt-4">
+    <form action={formAction} className="mt-3 space-y-4 border-t border-divider pt-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="mb-1.5 block text-sm font-medium">Price (£)</label>
@@ -86,7 +86,7 @@ export function QuoteForm({
           placeholder="Lift, pressure wash, chock ashore. Excludes antifoul."
           className={field}
         />
-        <p className="mt-1.5 text-sm text-slate-600">Goes out word for word with the price.</p>
+        <p className="mt-1.5 text-sm text-neutral-600">Goes out word for word with the price.</p>
       </div>
 
       {state.error && (

@@ -40,7 +40,7 @@ export default async function BookingPage(props: PageProps<'/booking/[reference]
 
   return (
     <PublicShell width="narrow">
-      <p className="text-sm text-slate-600">Reference</p>
+      <p className="text-sm text-neutral-600">Reference</p>
       <h1 className="text-2xl font-semibold tracking-tight">{booking.reference}</h1>
       <p className="mt-1 text-lg font-medium">{booking.vessel.name}</p>
 
@@ -82,11 +82,11 @@ export default async function BookingPage(props: PageProps<'/booking/[reference]
         </p>
       )}
 
-      <div className="mt-6 rounded-lg border border-slate-200 p-5">
+      <div className="mt-6 rounded-lg border border-divider p-5">
         {booking.session ? (
           <>
             <p className="font-semibold">{booking.session.sessionType.name}</p>
-            <p className="mt-0.5 text-slate-700">
+            <p className="mt-0.5 text-neutral-700">
               {formatDateLong(booking.session.startsAt)} ·{' '}
               {formatTimeRange(booking.session.startsAt, booking.session.endsAt)}
             </p>
@@ -98,7 +98,7 @@ export default async function BookingPage(props: PageProps<'/booking/[reference]
           <p className="font-semibold">Not yet scheduled</p>
         )}
 
-        <hr className="my-4 border-slate-200" />
+        <hr className="my-4 border-divider" />
 
         <dl className="space-y-2">
           <Row
@@ -127,22 +127,22 @@ export default async function BookingPage(props: PageProps<'/booking/[reference]
 
         {booking.requestNotes && (
           <>
-            <hr className="my-4 border-slate-200" />
-            <p className="text-sm text-slate-600">What you asked for</p>
-            <p className="mt-1 whitespace-pre-wrap text-slate-800">{booking.requestNotes}</p>
+            <hr className="my-4 border-divider" />
+            <p className="text-sm text-neutral-600">What you asked for</p>
+            <p className="mt-1 whitespace-pre-wrap text-neutral-800">{booking.requestNotes}</p>
           </>
         )}
 
         {booking.quoteNotes && (
           <>
-            <hr className="my-4 border-slate-200" />
-            <p className="text-sm text-slate-600">What the quote covers</p>
-            <p className="mt-1 whitespace-pre-wrap text-slate-800">{booking.quoteNotes}</p>
+            <hr className="my-4 border-divider" />
+            <p className="text-sm text-neutral-600">What the quote covers</p>
+            <p className="mt-1 whitespace-pre-wrap text-neutral-800">{booking.quoteNotes}</p>
           </>
         )}
       </div>
 
-      <p className="mt-5 text-slate-700">
+      <p className="mt-5 text-neutral-700">
         Need to change something? Ring us on{' '}
         <a href="tel:01590000000" className="text-brand-700 underline">
           01590 000000
@@ -160,7 +160,7 @@ export default async function BookingPage(props: PageProps<'/booking/[reference]
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-4">
-      <dt className="text-slate-600">{label}</dt>
+      <dt className="text-neutral-600">{label}</dt>
       <dd className="text-right font-medium">{value}</dd>
     </div>
   );

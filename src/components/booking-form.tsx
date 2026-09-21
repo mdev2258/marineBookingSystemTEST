@@ -4,7 +4,7 @@ import { useActionState } from 'react';
 import type { RequestState } from '@/app/book/actions';
 
 const field =
-  'w-full rounded-md border border-slate-300 bg-white px-3 py-3 text-slate-900 ' +
+  'w-full rounded-md border border-neutral-300 bg-white px-3 py-3 text-ink ' +
   'focus:border-brand-600 focus:outline-2 focus:outline-offset-2 focus:outline-brand-600';
 
 function Err({ message }: { message?: string }) {
@@ -66,7 +66,7 @@ export function BookingForm({
         <div className="grid gap-5 sm:grid-cols-2">
           <div>
             <label htmlFor="make" className="mb-1.5 block font-medium">
-              Make and model <span className="font-normal text-slate-500">(optional)</span>
+              Make and model <span className="font-normal text-neutral-500">(optional)</span>
             </label>
             <input id="make" name="make" className={field} placeholder="Westerly Konsort" />
           </div>
@@ -97,11 +97,11 @@ export function BookingForm({
               <option>Long</option>
               <option>Lifting</option>
             </select>
-            <p className="mt-1.5 text-sm text-slate-600">Decides how we strop her.</p>
+            <p className="mt-1.5 text-sm text-neutral-600">Decides how we strop her.</p>
           </div>
           <div>
             <label htmlFor="berth" className="mb-1.5 block font-medium">
-              Where is she? <span className="font-normal text-slate-500">(optional)</span>
+              Where is she? <span className="font-normal text-neutral-500">(optional)</span>
             </label>
             <input id="berth" name="berth" className={field} placeholder="Pontoon C, berth 14" />
           </div>
@@ -165,9 +165,9 @@ export function BookingForm({
         <Err message={state.errors?.requestNotes} />
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <div className="rounded-lg border border-divider bg-neutral-100 p-4">
         <p className="font-medium">We quote on the boat, not off a price list.</p>
-        <p className="mt-1 text-sm text-slate-700">
+        <p className="mt-1 text-sm text-neutral-700">
           Nothing is booked and nothing is owed until you have seen the price and said yes.
         </p>
       </div>

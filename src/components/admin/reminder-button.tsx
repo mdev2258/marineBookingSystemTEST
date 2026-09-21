@@ -10,21 +10,21 @@ export function ReminderButton({ due }: { due: number }) {
   );
 
   return (
-    <form action={action} className="rounded-lg border border-slate-200 p-4">
+    <form action={action} className="rounded-lg border border-divider p-4">
       <h2 className="font-semibold">Reminders for tomorrow</h2>
       {state.result ? (
-        <p className="mt-1 text-slate-700">
+        <p className="mt-1 text-neutral-700">
           Sent {state.result.sent} of {state.result.considered}
           {state.result.failed > 0 ? ` · ${state.result.failed} failed` : ''}.
         </p>
       ) : (
-        <p className="mt-1 text-slate-700">
+        <p className="mt-1 text-neutral-700">
           {due === 0
             ? 'Everyone on tomorrow has already been reminded.'
             : `${due} booking${due === 1 ? '' : 's'} still to remind.`}
         </p>
       )}
-      <p className="mt-1 text-sm text-slate-600">
+      <p className="mt-1 text-sm text-neutral-600">
         This runs by itself at 17:00 each day. The button does the same thing, now.
       </p>
       <button

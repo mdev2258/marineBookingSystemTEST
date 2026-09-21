@@ -10,7 +10,7 @@ import { formatDateLong, formatTimeRange } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Cancel session — Harbourside Sailing' };
+export const metadata: Metadata = { title: 'Cancel slot — Harbourside Marine' };
 
 /**
  * One route, two states. Once the session is cancelled this page becomes the
@@ -42,38 +42,38 @@ export default async function CancelSessionPage(props: PageProps<'/admin/session
       <AdminShell>
         <div className="py-6">
           <Link href="/admin/sessions" className="text-sm text-brand-700 underline">
-            Back to sessions
+            Back to the diary
           </Link>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight">Session cancelled</h1>
-          <p className="mt-1 text-slate-700">
+          <h1 className="mt-3 text-2xl font-semibold tracking-tight">Slot cancelled</h1>
+          <p className="mt-1 text-neutral-700">
             {session.sessionType.name} — {when}
           </p>
         </div>
 
-        <div className="rounded-lg border border-slate-200 p-5">
+        <div className="rounded-lg border border-divider p-5">
           <p className="text-3xl font-semibold tracking-tight">
             {notified} customer{notified === 1 ? '' : 's'} notified
           </p>
-          <p className="mt-1 text-slate-700">
+          <p className="mt-1 text-neutral-700">
             {failed} failed
             {session.cancellation
               ? ` · reason: ${CANCELLATION_REASON_LABEL[session.cancellation.reason as CancellationReason]}`
               : ''}
           </p>
           {session.cancellation?.note && (
-            <p className="mt-3 border-l-4 border-brand-600 bg-slate-50 p-3">
+            <p className="mt-3 border-l-4 border-brand-600 bg-neutral-100 p-3">
               &ldquo;{session.cancellation.note}&rdquo;
             </p>
           )}
 
-          <hr className="my-5 border-slate-200" />
+          <hr className="my-5 border-divider" />
 
           <p className="font-medium">
             {rebooked} rebooked · {awaiting} still to pick a new date
           </p>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-neutral-600">
             Everyone notified keeps their deposit and has a single-use link to move onto another
-            session of the same type.
+            slot for the same work.
           </p>
         </div>
 
@@ -81,7 +81,7 @@ export default async function CancelSessionPage(props: PageProps<'/admin/session
           href={`/admin/sessions/${id}`}
           className="mt-6 inline-block text-brand-700 underline"
         >
-          Back to this session
+          Back to this slot
         </Link>
       </AdminShell>
     );
@@ -94,10 +94,10 @@ export default async function CancelSessionPage(props: PageProps<'/admin/session
     <AdminShell>
       <div className="py-6">
         <Link href={`/admin/sessions/${id}`} className="text-sm text-brand-700 underline">
-          Back to this session
+          Back to this slot
         </Link>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight">Cancel this session</h1>
-        <p className="mt-1 text-slate-700">
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight">Cancel this slot</h1>
+        <p className="mt-1 text-neutral-700">
           {session.sessionType.name} — {when}
         </p>
       </div>

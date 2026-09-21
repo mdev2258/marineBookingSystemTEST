@@ -12,7 +12,7 @@ export default function Error({ reset }: { error: Error; reset: () => void }) {
   return (
     <main className="mx-auto w-full max-w-xl px-5 py-16">
       <h1 className="text-2xl font-semibold tracking-tight">That didn&rsquo;t work</h1>
-      <p className="mt-3 text-slate-700">
+      <p className="mt-3 text-neutral-700">
         Something went wrong at our end. Nothing you were doing has been lost — try again, and if
         you were signed in to the admin you may simply need to sign in afresh.
       </p>
@@ -26,7 +26,7 @@ export default function Error({ reset }: { error: Error; reset: () => void }) {
         </button>
         <Link
           href="/admin/login"
-          className="inline-flex min-h-12 items-center rounded-md border-2 border-slate-300 px-5 font-semibold hover:bg-slate-50"
+          className="inline-flex min-h-12 items-center rounded-md border-2 border-neutral-300 px-5 font-semibold hover:bg-neutral-100"
         >
           Sign in again
         </Link>

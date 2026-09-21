@@ -6,8 +6,8 @@ import { submitContactForm, type ContactState, type ContactValues } from '@/app/
 const EMPTY: ContactValues = { name: '', email: '', business: '', message: '' };
 
 const field =
-  'w-full rounded-md border border-slate-300 bg-white px-3 py-3 text-slate-900 ' +
-  'placeholder:text-slate-400 focus:border-brand-600 focus:outline-2 focus:outline-offset-2 ' +
+  'w-full rounded-md border border-neutral-300 bg-white px-3 py-3 text-ink ' +
+  'placeholder:text-neutral-400 focus:border-brand-600 focus:outline-2 focus:outline-offset-2 ' +
   'focus:outline-brand-600';
 
 function FieldError({ id, message }: { id: string; message?: string }) {
@@ -29,7 +29,7 @@ export function ContactForm() {
     return (
       <div className="rounded-lg border border-brand-200 bg-brand-50 p-6">
         <h3 className="text-lg font-semibold text-brand-800">Thanks — that&rsquo;s with me.</h3>
-        <p className="mt-2 text-slate-700">
+        <p className="mt-2 text-neutral-700">
           I read every message myself and normally reply within one working day.
         </p>
       </div>
@@ -79,7 +79,7 @@ export function ContactForm() {
 
       <div>
         <label htmlFor="business" className="mb-1.5 block font-medium">
-          Business <span className="font-normal text-slate-500">(optional)</span>
+          Business <span className="font-normal text-neutral-500">(optional)</span>
         </label>
         <input
           id="business"

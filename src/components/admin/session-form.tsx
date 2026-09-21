@@ -12,7 +12,7 @@ export type SessionTypeOption = {
 };
 
 const field =
-  'w-full rounded-md border border-slate-300 bg-white px-3 py-3 text-slate-900 ' +
+  'w-full rounded-md border border-neutral-300 bg-white px-3 py-3 text-ink ' +
   'focus:border-brand-600 focus:outline-2 focus:outline-offset-2 focus:outline-brand-600';
 
 function Error({ message }: { message?: string }) {
@@ -77,7 +77,7 @@ export function SessionForm({
           ))}
         </select>
         {selected && (
-          <p className="mt-1.5 text-sm text-slate-600">
+          <p className="mt-1.5 text-sm text-neutral-600">
             Allow {selected.durationMinutes} minutes. The finish time follows from this.
             {selected.tideDependent ? ' Tidal — check the window before you publish it.' : ''}
           </p>
@@ -116,7 +116,7 @@ export function SessionForm({
           onChange={(e) => setCapacity(e.target.value)}
           className={`${field} sm:max-w-40`}
         />
-        <p className="mt-1.5 text-sm text-slate-600">
+        <p className="mt-1.5 text-sm text-neutral-600">
           A crane takes one at a time; a surveyor might do two in a day.
         </p>
         <Error message={state.errors?.capacity} />
@@ -124,7 +124,7 @@ export function SessionForm({
 
       <div>
         <label htmlFor="notes" className="mb-1.5 block font-medium">
-          Tide or access note <span className="font-normal text-slate-500">(optional)</span>
+          Tide or access note <span className="font-normal text-neutral-500">(optional)</span>
         </label>
         <input
           id="notes"
@@ -134,7 +134,7 @@ export function SessionForm({
           placeholder="HW Lymington 11:20"
           className={field}
         />
-        <p className="mt-1.5 text-sm text-slate-600">Shown to the customer on the slot.</p>
+        <p className="mt-1.5 text-sm text-neutral-600">Shown to the customer on the slot.</p>
       </div>
 
       {state.error && (

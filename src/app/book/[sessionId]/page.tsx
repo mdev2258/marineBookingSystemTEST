@@ -32,17 +32,17 @@ export default async function BookSessionPage(props: PageProps<'/book/[sessionId
       </Link>
 
       <h1 className="mt-3 text-2xl font-semibold tracking-tight">{session.sessionType.name}</h1>
-      <p className="mt-1 text-slate-700">
+      <p className="mt-1 text-neutral-700">
         {formatDateLong(session.startsAt)} · {formatTimeRange(session.startsAt, session.endsAt)}
       </p>
       {session.notes && <p className="mt-1 font-medium text-brand-700">{session.notes}</p>}
       {session.sessionType.description && (
-        <p className="mt-3 text-slate-700">{session.sessionType.description}</p>
+        <p className="mt-3 text-neutral-700">{session.sessionType.description}</p>
       )}
 
       <div className="mt-8">
         {unavailable ? (
-          <p className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-slate-700">
+          <p className="rounded-lg border border-divider bg-neutral-100 p-4 text-neutral-700">
             That slot has gone.{' '}
             <Link href="/book" className="text-brand-700 underline">
               See what else is free

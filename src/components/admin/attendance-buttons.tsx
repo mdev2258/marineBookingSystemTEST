@@ -46,7 +46,7 @@ export function AttendanceButtons({
         className={
           optimistic === 'completed'
             ? `${base} border-emerald-700 bg-emerald-700 text-white`
-            : `${base} border-slate-300 bg-white text-slate-900`
+            : `${base} border-neutral-300 bg-white text-ink`
         }
       >
         Work done
@@ -59,7 +59,7 @@ export function AttendanceButtons({
         className={
           optimistic === 'no_show'
             ? `${base} border-red-700 bg-red-700 text-white`
-            : `${base} border-slate-300 bg-white text-slate-900`
+            : `${base} border-neutral-300 bg-white text-ink`
         }
       >
         Not ready

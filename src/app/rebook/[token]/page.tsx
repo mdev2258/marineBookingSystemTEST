@@ -37,7 +37,7 @@ export default async function RebookPage(props: PageProps<'/rebook/[token]'>) {
     return (
       <Shell>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight">This link has been used</h1>
-        <p className="mt-3 text-slate-700">
+        <p className="mt-3 text-neutral-700">
           If you have already picked a new date, you are all set — check your inbox for the
           confirmation. Otherwise give us a ring on 01590 000000 and we will sort it out.
         </p>
@@ -78,15 +78,15 @@ export default async function RebookPage(props: PageProps<'/rebook/[token]'>) {
         Sorry {booking.customer.name.split(' ')[0]} — we had to call it off
       </h1>
 
-      <div className="mt-5 rounded-lg border border-slate-200 p-4">
+      <div className="mt-5 rounded-lg border border-divider p-4">
         <p className="font-semibold">{booking.vessel.name}</p>
-        <p className="mt-0.5 text-slate-700">{cancelledSession.sessionType.name}</p>
-        <p className="mt-0.5 text-slate-700">{formatDateTime(cancelledSession.startsAt)}</p>
-        <p className="mt-2 text-slate-700">
+        <p className="mt-0.5 text-neutral-700">{cancelledSession.sessionType.name}</p>
+        <p className="mt-0.5 text-neutral-700">{formatDateTime(cancelledSession.startsAt)}</p>
+        <p className="mt-2 text-neutral-700">
           Reason: {reason ? CANCELLATION_REASON_LABEL[reason] : 'Other'}
         </p>
         {cancelledSession.cancellation?.note && (
-          <p className="mt-2 border-l-4 border-brand-600 bg-slate-50 p-3">
+          <p className="mt-2 border-l-4 border-brand-600 bg-neutral-100 p-3">
             &ldquo;{cancelledSession.cancellation.note}&rdquo;
           </p>
         )}
@@ -99,7 +99,7 @@ export default async function RebookPage(props: PageProps<'/rebook/[token]'>) {
         {options.length === 0 ? (
           <>
             <h2 className="text-lg font-semibold tracking-tight">No suitable dates just yet</h2>
-            <p className="mt-2 text-slate-700">
+            <p className="mt-2 text-neutral-700">
               We do not have another {cancelledSession.sessionType.name} slot on the schedule at
               the moment. We will be in touch as soon as we add more — your deposit stays exactly
               where it is in the meantime.

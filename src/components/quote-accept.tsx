@@ -29,7 +29,7 @@ export function QuoteAccept({ token, depositLabel }: { token: string; depositLab
       <form action={declineQuote.bind(null, token)} className="mt-3">
         <button
           type="submit"
-          className="min-h-12 w-full rounded-md border-2 border-slate-300 px-5 font-semibold text-slate-700 hover:bg-slate-50"
+          className="min-h-12 w-full rounded-md border-2 border-neutral-300 px-5 font-semibold text-neutral-700 hover:bg-neutral-100"
         >
           No thanks
         </button>

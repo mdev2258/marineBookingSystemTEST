@@ -10,10 +10,10 @@ export function PublicShell({
 }) {
   return (
     <>
-      <header className="border-b border-slate-200">
+      <header className="border-b border-divider">
         <div className="mx-auto flex max-w-2xl items-center justify-between gap-4 px-5 py-4">
           <Link href="/book" className="font-semibold tracking-tight">
-            Harbourside Sailing
+            Harbourside Marine
           </Link>
           <a href="tel:01590000000" className="text-sm text-brand-700 underline">
             01590 000000

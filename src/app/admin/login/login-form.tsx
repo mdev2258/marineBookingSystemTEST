@@ -4,7 +4,7 @@ import { useActionState } from 'react';
 import { adminLogin, type LoginState } from '@/app/admin/actions';
 
 const field =
-  'w-full rounded-md border border-slate-300 bg-white px-3 py-3 text-slate-900 ' +
+  'w-full rounded-md border border-neutral-300 bg-white px-3 py-3 text-ink ' +
   'focus:border-brand-600 focus:outline-2 focus:outline-offset-2 focus:outline-brand-600';
 
 export function LoginForm({ next }: { next: string }) {

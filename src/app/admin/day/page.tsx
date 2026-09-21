@@ -59,12 +59,12 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
 
   return (
     <AdminShell>
-      <div className="sticky top-0 z-10 -mx-4 border-b border-slate-200 bg-white px-4 py-3">
+      <div className="sticky top-0 z-10 -mx-4 border-b border-divider bg-white px-4 py-3">
         <div className="flex items-center justify-between gap-2">
           <Link
             href={`/admin/day?date=${addDays(date, -1)}`}
             aria-label="Previous day"
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border-2 border-slate-300 text-2xl font-semibold hover:bg-slate-50"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border-2 border-neutral-300 text-2xl font-semibold hover:bg-neutral-100"
           >
             &lsaquo;
           </Link>
@@ -84,7 +84,7 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
           <Link
             href={`/admin/day?date=${addDays(date, 1)}`}
             aria-label="Next day"
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border-2 border-slate-300 text-2xl font-semibold hover:bg-slate-50"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border-2 border-neutral-300 text-2xl font-semibold hover:bg-neutral-100"
           >
             &rsaquo;
           </Link>
@@ -92,7 +92,7 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
       </div>
 
       {sessions.length === 0 && (
-        <p className="py-16 text-center text-slate-600">Nothing in the yard today.</p>
+        <p className="py-16 text-center text-neutral-600">Nothing in the yard today.</p>
       )}
 
       <div className="space-y-6 pt-6">
@@ -104,13 +104,13 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
           return (
             <section
               key={session.id}
-              className={`rounded-lg border ${cancelled ? 'border-red-300 bg-red-50' : 'border-slate-200'}`}
+              className={`rounded-lg border ${cancelled ? 'border-red-300 bg-red-50' : 'border-divider'}`}
             >
               <div className="border-b border-inherit p-4">
                 <h2 className="text-lg font-semibold tracking-tight">
                   {formatTimeRange(session.startsAt, session.endsAt)}
                 </h2>
-                <p className="mt-0.5 text-slate-700">{session.sessionType.name}</p>
+                <p className="mt-0.5 text-neutral-700">{session.sessionType.name}</p>
                 {session.notes && (
                   <p className="mt-0.5 text-sm font-medium text-brand-700">{session.notes}</p>
                 )}
@@ -122,7 +122,7 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
                       {session.cancellation?.note ? ` — ${session.cancellation.note}` : ''}
                     </span>
                   ) : (
-                    <span className="text-slate-700">
+                    <span className="text-neutral-700">
                       {places} of {session.capacity} booked
                       {left > 0 ? ` · ${left} space${left === 1 ? '' : 's'} left` : ' · full'}
                     </span>
@@ -138,9 +138,9 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
               </div>
 
               {session.bookings.length === 0 ? (
-                <p className="p-4 text-slate-600">Nothing booked in.</p>
+                <p className="p-4 text-neutral-600">Nothing booked in.</p>
               ) : (
-                <ul className="divide-y divide-slate-200">
+                <ul className="divide-y divide-divider">
                   {session.bookings.map((booking) => {
                     const markable =
                       booking.status === 'paid' ||
@@ -156,7 +156,7 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
                       <li key={booking.id} className="p-4">
                         {/* Vessel first: the yard thinks in boats, not owners. */}
                         <p className="font-semibold">{booking.vessel.name}</p>
-                        <p className="text-sm text-slate-700">
+                        <p className="text-sm text-neutral-700">
                           {[
                             booking.vessel.make,
                             booking.vessel.lengthMetres ? `${booking.vessel.lengthMetres}m` : null,
@@ -166,7 +166,7 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
                             .join(' · ')}
                         </p>
                         {booking.vessel.berth && (
-                          <p className="text-sm text-slate-600">{booking.vessel.berth}</p>
+                          <p className="text-sm text-neutral-600">{booking.vessel.berth}</p>
                         )}
 
                         <p className="mt-2 text-sm font-medium">{booking.customer.name}</p>
@@ -187,7 +187,7 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
                           </a>
                         </p>
 
-                        <p className="mt-1 text-sm text-slate-500">
+                        <p className="mt-1 text-sm text-neutral-500">
                           {booking.reference}
                           {booking.quotedPence != null ? ` · ${formatPence(booking.quotedPence)}` : ''}
                         </p>
@@ -198,7 +198,7 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
                           </p>
                         )}
                         {booking.status === 'awaiting_rebook' && (
-                          <p className="mt-2 text-sm font-medium text-slate-700">Awaiting rebook</p>
+                          <p className="mt-2 text-sm font-medium text-neutral-700">Awaiting rebook</p>
                         )}
 
                         {markable && (

@@ -48,13 +48,13 @@ export default async function EnquiriesPage() {
     <AdminShell>
       <div className="py-6">
         <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
-        <p className="mt-1 text-slate-700">
+        <p className="mt-1 text-neutral-700">
           {awaiting} awaiting a price · {out} quote{out === 1 ? '' : 's'} out
         </p>
       </div>
 
       {jobs.length === 0 ? (
-        <p className="py-12 text-center text-slate-600">Nothing waiting. Rare, but nice.</p>
+        <p className="py-12 text-center text-neutral-600">Nothing waiting. Rare, but nice.</p>
       ) : (
         <ul className="space-y-4">
           {jobs.map((job) => {
@@ -73,7 +73,7 @@ export default async function EnquiriesPage() {
               <li
                 key={job.id}
                 className={`rounded-lg border p-4 ${
-                  job.status === 'enquiry' ? 'border-brand-300 bg-brand-50' : 'border-slate-200'
+                  job.status === 'enquiry' ? 'border-brand-300 bg-brand-50' : 'border-divider'
                 }`}
               >
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3">
@@ -82,14 +82,14 @@ export default async function EnquiriesPage() {
                     {job.status === 'enquiry' ? (
                       <span className="text-brand-800">Needs a price</span>
                     ) : (
-                      <span className="text-slate-700">
+                      <span className="text-neutral-700">
                         Quoted {formatPence(job.quotedPence ?? 0)} — waiting on them
                       </span>
                     )}
                   </p>
                 </div>
 
-                <p className="text-sm text-slate-700">
+                <p className="text-sm text-neutral-700">
                   {[
                     job.vessel.make,
                     job.vessel.lengthMetres ? `${job.vessel.lengthMetres}m` : null,
@@ -118,7 +118,7 @@ export default async function EnquiriesPage() {
                   </a>
                 </p>
 
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-1 text-sm text-neutral-600">
                   {job.reference} ·{' '}
                   {job.session
                     ? `${formatDateShort(job.session.startsAt)} ${job.session.sessionType.name}`
@@ -126,7 +126,7 @@ export default async function EnquiriesPage() {
                 </p>
 
                 {job.requestNotes && (
-                  <p className="mt-3 whitespace-pre-wrap border-l-4 border-slate-300 bg-white/70 p-3 text-slate-800">
+                  <p className="mt-3 whitespace-pre-wrap border-l-4 border-neutral-300 bg-white/70 p-3 text-neutral-800">
                     {job.requestNotes}
                   </p>
                 )}

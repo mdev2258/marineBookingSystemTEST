@@ -40,7 +40,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
   const redirect = process.env.DEMO_EMAIL_REDIRECT?.trim();
   const deliveredTo = redirect && redirect.length > 0 ? redirect : input.to;
   const apiKey = process.env.RESEND_API_KEY?.trim();
-  const from = process.env.EMAIL_FROM?.trim() || 'Harbourside Sailing <bookings@example.com>';
+  const from = process.env.EMAIL_FROM?.trim() || 'Harbourside Marine <bookings@example.com>';
 
   let status: 'sent' | 'failed' = 'sent';
   let providerId: string | undefined;

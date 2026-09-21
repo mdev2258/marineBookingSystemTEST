@@ -25,11 +25,11 @@ export default async function RequestPage() {
   return (
     <PublicShell width="narrow">
       <h1 className="text-2xl font-semibold tracking-tight">Ask us about work</h1>
-      <p className="mt-2 text-slate-700">
+      <p className="mt-2 text-neutral-700">
         Tell us about the boat and what she needs. We will look at it, come back with a price, and
         only then find you a date.
       </p>
-      <p className="mt-2 text-slate-700">
+      <p className="mt-2 text-neutral-700">
         Looking for a lift?{' '}
         <Link href="/book" className="text-brand-700 underline">
           The yard diary

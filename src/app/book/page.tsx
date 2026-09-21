@@ -34,11 +34,11 @@ export default async function BookPage(props: PageProps<'/book'>) {
   return (
     <PublicShell>
       <h1 className="text-2xl font-semibold tracking-tight">Yard diary</h1>
-      <p className="mt-2 text-slate-700">
+      <p className="mt-2 text-neutral-700">
         Ask for a slot and we will come back with a price for your boat. Nothing is owed until you
         accept the quote.
       </p>
-      <p className="mt-2 text-slate-700">
+      <p className="mt-2 text-neutral-700">
         Need a survey, a repair, or something that isn&rsquo;t a lift?{' '}
         <Link href="/request" className="text-brand-700 underline">
           Ask us about work
@@ -59,7 +59,7 @@ export default async function BookPage(props: PageProps<'/book'>) {
       </div>
 
       {sessions.length === 0 ? (
-        <p className="py-12 text-center text-slate-600">
+        <p className="py-12 text-center text-neutral-600">
           Nothing on the schedule for that just now. Give us a ring and we will sort something out.
         </p>
       ) : (
@@ -71,7 +71,7 @@ export default async function BookPage(props: PageProps<'/book'>) {
             return (
               <li key={session.id}>
                 <div
-                  className={`rounded-lg border p-4 ${full ? 'border-slate-200 bg-slate-50' : 'border-slate-200'}`}
+                  className={`rounded-lg border p-4 ${full ? 'border-divider bg-neutral-100' : 'border-divider'}`}
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3">
                     <p className="font-semibold">
@@ -79,7 +79,7 @@ export default async function BookPage(props: PageProps<'/book'>) {
                       {formatTimeRange(session.startsAt, session.endsAt)}
                     </p>
                   </div>
-                  <p className="mt-0.5 text-slate-700">{session.sessionType.name}</p>
+                  <p className="mt-0.5 text-neutral-700">{session.sessionType.name}</p>
                   {session.notes && (
                     <p className="mt-0.5 text-sm font-medium text-brand-700">{session.notes}</p>
                   )}
@@ -87,7 +87,7 @@ export default async function BookPage(props: PageProps<'/book'>) {
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                     <p
                       className={`text-sm font-medium ${
-                        full ? 'text-slate-600' : left === 1 ? 'text-red-700' : 'text-slate-700'
+                        full ? 'text-neutral-600' : left === 1 ? 'text-red-700' : 'text-neutral-700'
                       }`}
                     >
                       {full
@@ -122,7 +122,7 @@ function FilterChip({ href, label, active }: { href: string; label: string; acti
       className={`rounded-full border px-4 py-2 text-sm font-medium ${
         active
           ? 'border-brand-600 bg-brand-600 text-white'
-          : 'border-slate-300 text-slate-700 hover:border-brand-500'
+          : 'border-neutral-300 text-neutral-700 hover:border-brand-500'
       }`}
     >
       {label}

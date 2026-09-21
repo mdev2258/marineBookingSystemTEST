@@ -47,11 +47,11 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
         <h1 className="mt-3 text-2xl font-semibold tracking-tight">
           {session.sessionType.name}
         </h1>
-        <p className="mt-1 text-slate-700">
+        <p className="mt-1 text-neutral-700">
           {formatDateLong(session.startsAt)} · {formatTimeRange(session.startsAt, session.endsAt)}
         </p>
         {session.notes && <p className="mt-1 font-medium text-brand-700">{session.notes}</p>}
-        <p className="mt-1 text-slate-700">
+        <p className="mt-1 text-neutral-700">
           {taken} of {session.capacity} booked{cancelled ? '' : left === 0 ? ' · full' : ` · ${left} left`}
         </p>
       </div>
@@ -95,7 +95,7 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
 
           <div className="mt-10 rounded-lg border border-red-300 p-4">
             <h2 className="font-semibold">Blown out?</h2>
-            <p className="mt-1 text-slate-700">
+            <p className="mt-1 text-neutral-700">
               Cancelling emails every owner booked in and gives them a link to rebook. Their
               deposit moves with them.
             </p>
@@ -114,13 +114,13 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
       </h2>
 
       {session.bookings.length === 0 ? (
-        <p className="rounded-lg border border-slate-200 p-4 text-slate-600">Nothing booked in.</p>
+        <p className="rounded-lg border border-divider p-4 text-neutral-600">Nothing booked in.</p>
       ) : (
-        <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200">
+        <ul className="divide-y divide-divider rounded-lg border border-divider">
           {session.bookings.map((booking) => (
             <li key={booking.id} className="p-4">
               <p className="font-semibold">{booking.vessel.name}</p>
-              <p className="text-sm text-slate-700">
+              <p className="text-sm text-neutral-700">
                 {[
                   booking.vessel.make,
                   booking.vessel.lengthMetres ? `${booking.vessel.lengthMetres}m` : null,
@@ -145,7 +145,7 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
                   {booking.customer.email}
                 </a>
               </p>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-neutral-600">
                 {booking.reference} · {BOOKING_STATUS_LABEL[booking.status as BookingStatus]}
                 {booking.depositPence != null
                   ? ` · deposit ${formatPence(booking.depositPence)}`

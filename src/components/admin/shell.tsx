@@ -13,7 +13,7 @@ export async function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <header className="border-b border-slate-200 bg-white">
+      <header className="border-b border-divider bg-white">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
           <nav className="flex items-center gap-4">
             <Link href="/admin/day" className="font-semibold tracking-tight hover:text-brand-700">
@@ -35,7 +35,7 @@ export async function AdminShell({ children }: { children: React.ReactNode }) {
             </Link>
           </nav>
           <form action={adminLogout}>
-            <button type="submit" className="text-sm text-slate-600 underline hover:text-brand-700">
+            <button type="submit" className="text-sm text-neutral-600 underline hover:text-brand-700">
               Log out
             </button>
           </form>

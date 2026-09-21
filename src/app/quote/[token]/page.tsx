@@ -27,7 +27,7 @@ export default async function QuotePage(props: PageProps<'/quote/[token]'>) {
     return (
       <PublicShell width="narrow">
         <h1 className="text-2xl font-semibold tracking-tight">This quote has been answered</h1>
-        <p className="mt-3 text-slate-700">
+        <p className="mt-3 text-neutral-700">
           If you have already accepted it, check your inbox for the confirmation. Otherwise give us
           a ring on 01590 000000 and we will send it again.
         </p>
@@ -44,17 +44,17 @@ export default async function QuotePage(props: PageProps<'/quote/[token]'>) {
 
   return (
     <PublicShell width="narrow">
-      <p className="text-sm text-slate-600">Quote for</p>
+      <p className="text-sm text-neutral-600">Quote for</p>
       <h1 className="text-2xl font-semibold tracking-tight">{booking.vessel.name}</h1>
-      <p className="mt-1 text-slate-700">
+      <p className="mt-1 text-neutral-700">
         {[booking.vessel.make, booking.vessel.lengthMetres ? `${booking.vessel.lengthMetres}m` : null]
           .filter(Boolean)
           .join(' · ')}
       </p>
 
-      <div className="mt-6 rounded-lg border border-slate-200 p-5">
+      <div className="mt-6 rounded-lg border border-divider p-5">
         <p className="font-semibold">{booking.session.sessionType.name}</p>
-        <p className="mt-0.5 text-slate-700">
+        <p className="mt-0.5 text-neutral-700">
           {formatDateLong(booking.session.startsAt)} ·{' '}
           {formatTimeRange(booking.session.startsAt, booking.session.endsAt)}
         </p>
@@ -62,20 +62,20 @@ export default async function QuotePage(props: PageProps<'/quote/[token]'>) {
           <p className="mt-0.5 font-medium text-brand-700">{booking.session.notes}</p>
         )}
 
-        <hr className="my-4 border-slate-200" />
+        <hr className="my-4 border-divider" />
 
         <p className="text-4xl font-semibold tracking-tight">
           {formatPence(booking.quotedPence)}
         </p>
-        <p className="mt-2 text-slate-700">
+        <p className="mt-2 text-neutral-700">
           {formatPence(deposit)} deposit to book her in · {formatPence(balance)} on completion
         </p>
 
         {booking.quoteNotes && (
           <>
-            <hr className="my-4 border-slate-200" />
-            <p className="text-sm text-slate-600">What that covers</p>
-            <p className="mt-1 whitespace-pre-wrap text-slate-800">{booking.quoteNotes}</p>
+            <hr className="my-4 border-divider" />
+            <p className="text-sm text-neutral-600">What that covers</p>
+            <p className="mt-1 whitespace-pre-wrap text-neutral-800">{booking.quoteNotes}</p>
           </>
         )}
       </div>
@@ -84,7 +84,7 @@ export default async function QuotePage(props: PageProps<'/quote/[token]'>) {
         <QuoteAccept token={token} depositLabel={formatPence(deposit)} />
       </div>
 
-      <p className="mt-4 text-sm text-slate-600">
+      <p className="mt-4 text-sm text-neutral-600">
         The date above isn&rsquo;t held until you accept — if someone else takes it first we will
         find you another.
       </p>

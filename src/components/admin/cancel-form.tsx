@@ -26,7 +26,7 @@ export function CancelForm({
           {CANCELLATION_REASON.map((reason, i) => (
             <label
               key={reason}
-              className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border-2 border-slate-300 p-4 font-semibold hover:border-brand-500 has-checked:border-brand-600 has-checked:bg-brand-50"
+              className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border-2 border-neutral-300 p-4 font-semibold hover:border-brand-500 has-checked:border-brand-600 has-checked:bg-brand-50"
             >
               <input
                 type="radio"
@@ -43,7 +43,7 @@ export function CancelForm({
 
       <div>
         <label htmlFor="note" className="mb-1.5 block font-medium">
-          Anything to tell them? <span className="font-normal text-slate-500">(optional)</span>
+          Anything to tell them? <span className="font-normal text-neutral-500">(optional)</span>
         </label>
         <textarea
           id="note"
@@ -51,9 +51,9 @@ export function CancelForm({
           rows={3}
           maxLength={500}
           placeholder="Force 6 gusting 7 in the Solent"
-          className="w-full rounded-md border border-slate-300 bg-white px-3 py-3 text-slate-900 focus:border-brand-600 focus:outline-2 focus:outline-offset-2 focus:outline-brand-600"
+          className="w-full rounded-md border border-neutral-300 bg-white px-3 py-3 text-ink focus:border-brand-600 focus:outline-2 focus:outline-offset-2 focus:outline-brand-600"
         />
-        <p className="mt-1.5 text-sm text-slate-600">This appears word for word in their email.</p>
+        <p className="mt-1.5 text-sm text-neutral-600">This appears word for word in their email.</p>
       </div>
 
       {state.error && (

@@ -31,7 +31,7 @@ export default async function ConfirmationPage(props: PageProps<'/book/confirmat
     return (
       <PublicShell width="narrow">
         <h1 className="text-2xl font-semibold tracking-tight">We couldn&rsquo;t find that payment</h1>
-        <p className="mt-3 text-slate-700">
+        <p className="mt-3 text-neutral-700">
           If you have been charged, your confirmation email will still arrive. Give us a ring on
           01590 000000 and we will check.
         </p>
@@ -61,20 +61,20 @@ export default async function ConfirmationPage(props: PageProps<'/book/confirmat
       <h1 className="mt-2 text-2xl font-semibold tracking-tight">
         {booking.vessel.name} is booked in
       </h1>
-      <p className="mt-3 text-slate-700">
+      <p className="mt-3 text-neutral-700">
         We&rsquo;ve emailed your confirmation to {booking.customer.email}.
       </p>
 
-      <div className="mt-6 rounded-lg border border-slate-200 p-5">
-        <p className="text-sm text-slate-600">Your reference</p>
+      <div className="mt-6 rounded-lg border border-divider p-5">
+        <p className="text-sm text-neutral-600">Your reference</p>
         <p className="text-2xl font-semibold tracking-tight">{booking.reference}</p>
 
-        <hr className="my-4 border-slate-200" />
+        <hr className="my-4 border-divider" />
 
         {booking.session ? (
           <>
             <p className="font-semibold">{booking.session.sessionType.name}</p>
-            <p className="mt-0.5 text-slate-700">
+            <p className="mt-0.5 text-neutral-700">
               {formatDateLong(booking.session.startsAt)} ·{' '}
               {formatTimeRange(booking.session.startsAt, booking.session.endsAt)}
             </p>
@@ -83,15 +83,15 @@ export default async function ConfirmationPage(props: PageProps<'/book/confirmat
             )}
           </>
         ) : (
-          <p className="text-slate-700">We will confirm a date with you shortly.</p>
+          <p className="text-neutral-700">We will confirm a date with you shortly.</p>
         )}
 
-        <p className="mt-3 text-slate-700">
+        <p className="mt-3 text-neutral-700">
           Deposit paid {formatPence(deposit)} · {formatPence(balance)} due on completion
         </p>
       </div>
 
-      <p className="mt-5 text-slate-700">
+      <p className="mt-5 text-neutral-700">
         Please clear the cockpit and side decks, and make sure we can get to her.
       </p>
 

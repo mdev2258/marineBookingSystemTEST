@@ -5,7 +5,7 @@ export default function NotFound() {
   return (
     <main className="mx-auto w-full max-w-xl px-5 py-16">
       <h1 className="text-2xl font-semibold tracking-tight">We couldn&rsquo;t find that</h1>
-      <p className="mt-3 text-slate-700">
+      <p className="mt-3 text-neutral-700">
         The link may be out of date, or a booking reference may have been mistyped. Give us a ring
         on{' '}
         <a href="tel:01590000000" className="text-brand-700 underline">

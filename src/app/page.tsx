@@ -54,7 +54,7 @@ const INCLUDED = [
 export default function Home() {
   return (
     <>
-      <header className="sticky top-0 z-10 border-b border-slate-200 bg-white">
+      <header className="sticky top-0 z-10 border-b border-divider bg-white">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-5 py-3">
           <span className="font-semibold tracking-tight">{BUSINESS}</span>
           <a
@@ -71,7 +71,7 @@ export default function Home() {
           <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-5xl">
             Your next job is on a pad, in a text, or in someone&rsquo;s head.
           </h1>
-          <p className="mt-6 text-lg leading-relaxed text-slate-700">
+          <p className="mt-6 text-lg leading-relaxed text-neutral-700">
             I build small job and quote systems for boatyards, surveyors, riggers, shipwrights and
             marine engineers — one place where every enquiry, quote, deposit and boat lives, that
             works on a phone in the rain.
@@ -86,19 +86,19 @@ export default function Home() {
           </p>
         </section>
 
-        <section className="border-t border-slate-200 py-12 sm:py-16">
+        <section className="border-t border-divider py-12 sm:py-16">
           <h2 className="text-2xl font-semibold tracking-tight">Three things it fixes</h2>
           <div className="mt-8 grid gap-8 sm:grid-cols-3">
             {PROBLEMS.map((p) => (
               <div key={p.title}>
                 <h3 className="font-semibold text-brand-700">{p.title}</h3>
-                <p className="mt-2 leading-relaxed text-slate-700">{p.body}</p>
+                <p className="mt-2 leading-relaxed text-neutral-700">{p.body}</p>
               </div>
             ))}
           </div>
         </section>
 
-        <section className="border-t border-slate-200 py-12 sm:py-16">
+        <section className="border-t border-divider py-12 sm:py-16">
           <h2 className="text-2xl font-semibold tracking-tight">How it works</h2>
           <ol className="mt-8 space-y-8">
             {STEPS.map((s, i) => (
@@ -111,29 +111,29 @@ export default function Home() {
                 </span>
                 <div>
                   <h3 className="font-semibold">{s.title}</h3>
-                  <p className="mt-2 leading-relaxed text-slate-700">{s.body}</p>
+                  <p className="mt-2 leading-relaxed text-neutral-700">{s.body}</p>
                 </div>
               </li>
             ))}
           </ol>
         </section>
 
-        <section className="border-t border-slate-200 py-12 sm:py-16">
+        <section className="border-t border-divider py-12 sm:py-16">
           <h2 className="text-2xl font-semibold tracking-tight">Pricing</h2>
-          <div className="mt-8 rounded-lg border border-slate-200 p-6">
+          <div className="mt-8 rounded-lg border border-divider p-6">
             <p className="text-3xl font-semibold tracking-tight">
-              From £600 <span className="text-lg font-normal text-slate-600">one-off setup</span>
+              From £600 <span className="text-lg font-normal text-neutral-600">one-off setup</span>
             </p>
             <p className="mt-2 text-3xl font-semibold tracking-tight">
-              then £40 <span className="text-lg font-normal text-slate-600">a month</span>
+              then £40 <span className="text-lg font-normal text-neutral-600">a month</span>
             </p>
-            <p className="mt-4 text-slate-700">
+            <p className="mt-4 text-neutral-700">
               No per-booking commission and no long contract — a month&rsquo;s notice and it stops.
               Card processing fees are charged by the payment provider directly.
             </p>
             <ul className="mt-6 space-y-2.5">
               {INCLUDED.map((item) => (
-                <li key={item} className="flex gap-3 text-slate-700">
+                <li key={item} className="flex gap-3 text-neutral-700">
                   <span aria-hidden className="font-semibold text-brand-600">
                     —
                   </span>
@@ -144,9 +144,9 @@ export default function Home() {
           </div>
         </section>
 
-        <section id="contact" className="scroll-mt-16 border-t border-slate-200 py-12 sm:py-16">
+        <section id="contact" className="scroll-mt-16 border-t border-divider py-12 sm:py-16">
           <h2 className="text-2xl font-semibold tracking-tight">Get in touch</h2>
-          <p className="mt-3 mb-8 text-slate-700">
+          <p className="mt-3 mb-8 text-neutral-700">
             Tell me roughly how work reaches you today and I will tell you whether this is worth
             your money.
           </p>
@@ -154,8 +154,8 @@ export default function Home() {
         </section>
       </main>
 
-      <footer className="border-t border-slate-200 py-8">
-        <div className="mx-auto max-w-3xl px-5 text-sm text-slate-600">
+      <footer className="border-t border-divider py-8">
+        <div className="mx-auto max-w-3xl px-5 text-sm text-neutral-600">
           <p>
             {BUSINESS} &middot;{' '}
             <a className="underline hover:text-brand-700" href={`mailto:${CONTACT_EMAIL}`}>

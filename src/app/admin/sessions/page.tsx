@@ -48,7 +48,7 @@ export default async function SessionsPage() {
       </div>
 
       {sessions.length === 0 ? (
-        <p className="py-12 text-center text-slate-600">Nothing scheduled yet.</p>
+        <p className="py-12 text-center text-neutral-600">Nothing scheduled yet.</p>
       ) : (
         <ul className="space-y-3">
           {sessions.map((session) => {
@@ -63,7 +63,7 @@ export default async function SessionsPage() {
                 <Link
                   href={`/admin/sessions/${session.id}`}
                   className={`block rounded-lg border p-4 hover:border-brand-500 ${
-                    cancelled ? 'border-red-300 bg-red-50' : 'border-slate-200'
+                    cancelled ? 'border-red-300 bg-red-50' : 'border-divider'
                   }`}
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3">
@@ -72,7 +72,7 @@ export default async function SessionsPage() {
                       {formatTimeRange(session.startsAt, session.endsAt)}
                     </p>
                   </div>
-                  <p className="mt-0.5 text-slate-700">{session.sessionType.name}</p>
+                  <p className="mt-0.5 text-neutral-700">{session.sessionType.name}</p>
                   {session.notes && (
                     <p className="mt-0.5 text-sm font-medium text-brand-700">{session.notes}</p>
                   )}
@@ -82,7 +82,7 @@ export default async function SessionsPage() {
                   ) : (
                     <>
                       <div
-                        className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200"
+                        className="mt-3 h-2 overflow-hidden rounded-full bg-neutral-200"
                         role="presentation"
                       >
                         <div
@@ -90,7 +90,7 @@ export default async function SessionsPage() {
                           style={{ width: `${fill}%` }}
                         />
                       </div>
-                      <p className="mt-1.5 text-sm text-slate-700">
+                      <p className="mt-1.5 text-sm text-neutral-700">
                         {seats} of {session.capacity} booked
                         {left === 0 ? ' · full' : ` · ${left} left`}
                       </p>
