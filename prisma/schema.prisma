@@ -11,13 +11,25 @@
 // Deploying to Postgres = set DATABASE_URL *and* change this one line.
 // See README > Deploying to Vercel.
 //
-// DOMAIN NOTE: this models a marine SERVICES yard -- liftouts, surveys,
-// inspections, rigging, shipwright work. The model names (Session, Booking,
-// SessionType) are deliberately domain-neutral and are NOT renamed to
-// Slot/Job/Service: they were chosen generic so the same code serves a
-// different trade, and renaming them buys nothing but a very large diff.
-// Read them as: SessionType = a service offered, Session = a bookable slot in
-// the yard diary, Booking = one job on one vessel.
+// CALENDAR DATES ARE STRINGS. A field that means "a day" and not "an instant"
+// is a String holding "yyyy-MM-dd" (the LondonDate type in src/lib/time.ts).
+// Storing a bare day as a DateTime is how you get a job planned for the 16th
+// showing as the 15th on a laptop in BST. Instants (Visit.startsAt, every
+// *At audit column) stay DateTime and stay UTC.
+//
+// DOMAIN NOTE: this models a marine TRADESPERSON -- a one-to-five person
+// shipwright, rigger, marine engineer or electrician -- not a boatyard.
+// See ANALYSIS-TRADES.md. The model names are deliberately domain-neutral and
+// are NOT renamed, because renaming buys nothing but a very large diff:
+//
+//   Operator      = the trade business        (§6 "Business")
+//   Vessel        = the boat                  (§6 "Boat")
+//   Booking       = one job on one boat       (§6 "Job")
+//   QuoteLineItem = one line of an estimate   (§6 "EstimateLine")
+//
+// PARKED (marina-era, behind FEATURE_YARD in src/lib/features.ts):
+// SessionType, Session, SessionCancellation. Out of nav and out of the seed,
+// code intact. Not dropped -- see ANALYSIS-TRADES.md §5.
 
 generator client {
   provider = "prisma-client-js"
@@ -28,7 +40,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// The business. Deliberately generic: one row is the fictional operator.
+/// The trade business. One row. Was the yard/operator; now the shipwright or
+/// rigger who owns this install.
 model Operator {
   id           String   @id @default(cuid())
   name         String
@@ -39,18 +52,529 @@ model Operator {
   phone        String?
   createdAt    DateTime @default(now())
 
+  /// Comma-separated trade slugs, e.g. "rigging,engineering". A String and not
+  /// a join table: it drives copy and reminder defaults, nothing queries it.
+  tradeTypes String  @default("")
+  ownerName  String?
+
+  /// Many sole traders are under the registration threshold. When false the
+  /// app shows plain totals and the word VAT appears NOWHERE -- not a 0% line,
+  /// not "inc. VAT". See ANALYSIS-TRADES.md §3.7.
+  vatRegistered Boolean @default(false)
+  vatNumber     String?
+
+  defaultLabourRatePence Int @default(5500)
+
+  /// Invoice numbering. nextInvoiceNumber is bumped inside the same
+  /// transaction that creates the invoice, and a number is NEVER reused --
+  /// voiding an invoice burns its number on purpose.
+  invoicePrefix     String @default("INV-")
+  nextInvoiceNumber Int    @default(1)
+
+  paymentTermsDays Int @default(14)
+
+  /// Free text printed on invoices ("Sort 00-00-00, Acct 12345678").
+  /// NEVER store card data here or anywhere else in this schema.
+  bankDetailsText String?
+
   sessionTypes SessionType[]
   sessions     Session[]
   customers    Customer[]
   vessels      Vessel[]
   bookings     Booking[]
+  places       Place[]
+  invoices     Invoice[]
 }
 
-/// A service the yard offers: liftout, pre-purchase survey, rig inspection.
-/// Swap the rows and this is a different trade; no code changes.
+/// Where boats live and where work happens. A boat MOVES between these --
+/// hard standing in winter, a pontoon in summer, a swinging mooring -- which
+/// is the thing that makes this different from a plumber's address book.
+model Place {
+  id         String  @id @default(cuid())
+  operatorId String
+  name       String
+  /// What fits on a board card: "EYH hard", "Bosham mooring".
+  shortName  String
+  /// yard | marina | mooring | drying_mooring | trailer | other
+  kind       String  @default("yard")
+  /// "keys from the office", "hot works permit needed"
+  notes      String?
+  sortOrder  Int     @default(0)
+
+  operator Operator  @relation(fields: [operatorId], references: [id])
+  vessels  Vessel[]
+  bookings Booking[]
+  visits   Visit[]
+
+  @@index([operatorId])
+}
+
+model Customer {
+  id         String   @id @default(cuid())
+  operatorId String
+  name       String
+  /// Always stored lowercased. Never query with mode:'insensitive' (Postgres-only).
+  email      String
+  phone      String?
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  operator Operator  @relation(fields: [operatorId], references: [id])
+  vessels  Vessel[]
+  bookings Booking[]
+
+  @@unique([operatorId, email])
+}
+
+/// The boat. The trade talks about the boat first and the owner second, and
+/// the same owner routinely has more than one.
 ///
-/// There is no default price. Every job here is quoted on the boat, so price
-/// lives on the Booking once the yard has seen what it is dealing with.
+/// customerId is NULLABLE: a jot can name a boat before anyone knows whose it
+/// is. See Booking for the same reasoning.
+model Vessel {
+  id             String   @id @default(cuid())
+  operatorId     String
+  customerId     String?
+  name           String
+  /// "Westerly", "Beneteau"
+  make           String?
+  /// "Konsort", "Oceanis 350"
+  model          String?
+  year           Int?
+  /// Length overall. Float metres, kept from the yard era; §6 asks for loaCm
+  /// but re-basing the unit changes every display for no behaviour.
+  lengthMetres   Float?
+  /// Fin, bilge, long, lifting -- matters before anything is lifted.
+  keelType       String?
+  /// Where the boat is NOW. Moves are recorded as VesselMove rows.
+  currentPlaceId String?
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  operator     Operator     @relation(fields: [operatorId], references: [id])
+  customer     Customer?    @relation(fields: [customerId], references: [id])
+  currentPlace Place?       @relation(fields: [currentPlaceId], references: [id])
+  bookings     Booking[]
+  equipment    Equipment[]
+  reminders    Reminder[]
+  moves        VesselMove[]
+
+  @@index([customerId])
+  @@index([operatorId])
+}
+
+/// Where a boat has been. The boat file shows this as its history; nothing
+/// else reads it. Append-only.
+model VesselMove {
+  id       String  @id @default(cuid())
+  vesselId String
+  /// LondonDate "yyyy-MM-dd"
+  movedOn  String
+  fromName String?
+  toName   String
+  note     String?
+
+  vessel Vessel @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+
+  @@index([vesselId, movedOn])
+}
+
+/// Per-boat kit with an age or a service interval. THIS is what turns into
+/// repeat work: standing rigging at 11 years is a rigging quote waiting to be
+/// asked for, and the trade holding the record gets the job.
+model Equipment {
+  id       String  @id @default(cuid())
+  vesselId String
+  /// engine | outboard | standing_rigging | running_rigging | furler | sail
+  /// | seacock | gas | electrics | other
+  kind     String
+  make     String?
+  model    String?
+  serial   String?
+
+  /// LondonDate "yyyy-MM-dd". For standing rigging this is the age insurers
+  /// and surveyors ask about.
+  installedOn           String?
+  hours                 Int?
+  /// LondonDate "yyyy-MM-dd" -- when `hours` was last read off the clock.
+  hoursRecordedOn       String?
+  serviceIntervalMonths Int?
+  serviceIntervalHours  Int?
+  /// LondonDate "yyyy-MM-dd"
+  lastServicedOn        String?
+  notes                 String?
+  createdAt             DateTime @default(now())
+
+  vessel    Vessel     @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  reminders Reminder[]
+
+  @@index([vesselId, kind])
+}
+
+/// ONE JOB. The card on the board.
+///
+/// vesselId and customerId are NULLABLE and that is the single most
+/// load-bearing fact in this schema. ANALYSIS-TRADES.md §3.3: a job can exist
+/// as one line of free text with no boat, no owner and no place, because
+/// capture has to be quicker than writing it on the back of your hand.
+/// Every "why is this nullable?" tidy-up breaks the whole premise of the
+/// product. Same rule as quotedPence: a job exists before it has a price, and
+/// now, before it has a boat.
+///
+/// `column` is the board column and is the job's real state. The legacy
+/// `status` field below still drives the parked yard flow and the payment
+/// seam; nothing on the board reads it.
+model Booking {
+  id         String  @id @default(cuid())
+  /// Human-readable, e.g. HS-7QK2ND. Used in emails and as the public URL key.
+  reference  String  @unique
+  operatorId String
+  /// NULL until the yard schedules it. PARKED with the rest of the diary.
+  sessionId  String?
+  customerId String?
+  vesselId   String?
+
+  /// What the owner said they wanted, in their words -- or, for a card created
+  /// by Jot, the raw captured text, kept verbatim forever after it is sorted.
+  requestNotes String?
+
+  // ---- board state (ANALYSIS-TRADES.md §4) ----
+
+  /// jotted | enquiry | estimate_sent | booked | waiting | on_it
+  /// | done_to_invoice | invoiced | paid
+  /// `paid` drops off the board into the boat's history.
+  column String @default("jotted")
+
+  /// Required whenever column = 'waiting'. Enforced in the action, not here:
+  /// a CHECK constraint is not portable, and the rule is "you cannot SAVE a
+  /// waiting card without a reason", which is a write-path rule.
+  /// yard_lift | crane | parts | owner_decision | weather | tide | access | other
+  waitingReason String?
+  /// LondonDate "yyyy-MM-dd". When this passes, the card flashes so nothing
+  /// rots in the Waiting column.
+  waitingUntil  String?
+
+  /// LondonDate "yyyy-MM-dd". The intended day, if there is one. Not a booking
+  /// -- a Visit is the scheduled thing.
+  plannedOn String?
+  /// Where the WORK happens, which may not be where the boat usually lives.
+  placeId   String?
+
+  /// Ordering within a column. Sparse (100, 200, 300) so a card can be dropped
+  /// between two others without renumbering the column.
+  position Int @default(0)
+
+  /// Set every time the card lands in a column, so the board can say "in
+  /// Waiting for 9 days" and the timeline has something to draw.
+  columnChangedAt DateTime @default(now())
+
+  // ---- price ----
+
+  /// The ACCEPTED total. NULL until an estimate is accepted -- a job exists
+  /// before it has a price. Snapshotted, never re-totalled under the owner.
+  quotedPence Int?
+  quotedAt    DateTime?
+  quoteNotes  String?
+  acceptedAt  DateTime?
+
+  /// PARKED. The yard took a deposit at acceptance; a tradesperson invoices on
+  /// completion. Kept so the parked flow still type-checks.
+  depositPence Int?
+
+  // ---- parked yard lifecycle ----
+
+  /// enquiry | quoted | declined | pending_payment | paid | expired
+  /// | cancelled | awaiting_rebook | completed | no_show
+  /// PARKED: the board reads `column`. This still drives the yard screens and
+  /// the payment seam.
+  status    String    @default("enquiry")
+  expiresAt DateTime?
+
+  stripeCheckoutSessionId String?   @unique
+  stripePaymentIntentId   String?   @unique
+  paidAt                  DateTime?
+
+  completedAt        DateTime?
+  attendanceMarkedAt DateTime?
+  cancelledAt        DateTime?
+
+  rebookToken           String?   @unique
+  rebookedFromSessionId String?
+  rebookedAt            DateTime?
+
+  /// PARKED: superseded by Estimate.token. Kept until F3 moves the flow over.
+  quoteToken String? @unique
+
+  reminderSentAt DateTime?
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  operator   Operator        @relation(fields: [operatorId], references: [id])
+  session    Session?        @relation(fields: [sessionId], references: [id])
+  customer   Customer?       @relation(fields: [customerId], references: [id])
+  vessel     Vessel?         @relation(fields: [vesselId], references: [id])
+  place      Place?          @relation(fields: [placeId], references: [id])
+  emailLogs  EmailLog[]
+  lineItems  QuoteLineItem[]
+  estimates  Estimate[]
+  variations Variation[]
+  partOrders PartOrder[]
+  visits     Visit[]
+  invoices   Invoice[]
+
+  @@index([operatorId, column, position])
+  @@index([sessionId, status])
+  @@index([customerId])
+  @@index([vesselId])
+  @@index([status, createdAt])
+}
+
+/// §6 "EstimateLine". One line of work on a job: labour, parts, subcontract.
+///
+/// The lines live on the JOB, not on the Estimate. That is deliberate: they
+/// are the working list the trade ticks off as work is done (`done`), and an
+/// Estimate is a document *sent* at a point in time that snapshots their
+/// total. An Invoice snapshots them again into InvoiceLine.
+model QuoteLineItem {
+  id          String @id @default(cuid())
+  bookingId   String
+  /// labour | parts | subcontract | other
+  kind        String @default("labour")
+  description String
+
+  /// Quantity. Float because labour is quoted in hours and 2.5h is normal.
+  /// Money stays Int pence; this is not money.
+  qty            Float @default(1)
+  unitPricePence Int   @default(0)
+
+  /// amountPence = round(qty * unitPricePence), computed on write in ONE
+  /// place so there is no second source of truth for a line total. Stored
+  /// rather than derived so a sent estimate cannot be re-totalled by a later
+  /// rounding change.
+  amountPence Int
+
+  /// Basis points: 2000 = 20%. IGNORED ENTIRELY when the business is not
+  /// VAT-registered -- not zeroed, not shown.
+  vatRateBps Int @default(0)
+
+  /// Ticked when the work on this line is actually done. Drives what lands on
+  /// the invoice.
+  done Boolean @default(false)
+
+  sortOrder Int @default(0)
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+}
+
+/// A priced document sent to the owner. Non-binding: the word is ESTIMATE, not
+/// quote -- time and materials, extra work expected (§3.6).
+///
+/// Re-estimating supersedes rather than edits, so what the owner agreed to is
+/// still readable after the price changes.
+model Estimate {
+  id        String @id @default(cuid())
+  bookingId String
+
+  /// draft | sent | accepted | declined | superseded
+  status String @default("draft")
+
+  /// Snapshotted at send. Never recomputed from the lines afterwards.
+  totalPence Int
+  vatPence   Int     @default(0)
+  notes      String?
+
+  sentAt       DateTime?
+  decidedAt    DateTime?
+  /// link | phone | in_person | text
+  /// "Agreed by phone" is ALWAYS available (§3.5). The app records what
+  /// happened; it never forces the owner online.
+  decidedVia   String?
+  decisionNote String?
+
+  /// Single-use, cleared the moment it is spent.
+  token String? @unique
+
+  createdAt DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, status])
+}
+
+/// Extra work found once the job is open -- the seized seacock. Raised in
+/// three fields from a card; approved by link or recorded as agreed by phone.
+/// An unanswered variation puts a dot on the board card.
+model Variation {
+  id            String  @id @default(cuid())
+  bookingId     String
+  description   String
+  /// Why it is needed. This is the bit that stops the argument in March.
+  reason        String?
+  estimatePence Int
+
+  /// awaiting_owner | approved | declined | withdrawn
+  status String @default("awaiting_owner")
+
+  /// link | phone | in_person | text
+  decidedVia   String?
+  decidedAt    DateTime?
+  decisionNote String?
+
+  token          String?   @unique
+  /// Exactly one chase, 24h after raising. Not a drip campaign.
+  reminderSentAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, status])
+}
+
+/// Parts on order. When the last outstanding part arrives the app offers to
+/// move the card out of Waiting -- it does not move it on its own.
+model PartOrder {
+  id        String  @id @default(cuid())
+  bookingId String
+  item      String
+  supplier  String?
+  /// LondonDate "yyyy-MM-dd"
+  orderedOn String?
+  etaOn     String?
+  arrivedOn String?
+  costPence Int?
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+}
+
+/// A planned attendance: this boat, this place, this day. Postponing one emails
+/// the owner (the repointed cancel/rebook machinery).
+model Visit {
+  id             String    @id @default(cuid())
+  bookingId      String
+  placeId        String?
+  startsAt       DateTime
+  endsAt         DateTime?
+  /// planned | done | postponed
+  status         String    @default("planned")
+  /// weather | tide | parts | access | other -- free text note alongside.
+  postponeReason String?
+  postponeNote   String?
+  createdAt      DateTime  @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  place   Place?  @relation(fields: [placeId], references: [id])
+
+  @@index([bookingId, startsAt])
+}
+
+/// A numbered invoice. Numbers are sequential per business and NEVER reused,
+/// even after a void -- that is an accounting rule, not a preference.
+model Invoice {
+  id         String @id @default(cuid())
+  operatorId String
+  bookingId  String
+
+  /// Prefix + sequence, e.g. "HMS-0007". Unique across the business.
+  number String @unique
+
+  /// LondonDate "yyyy-MM-dd"
+  issuedOn String
+  dueOn    String
+
+  totalPence Int
+  vatPence   Int @default(0)
+
+  /// draft | sent | paid | void
+  status String @default("draft")
+
+  /// LondonDate "yyyy-MM-dd"
+  paidOn  String?
+  /// link | bank | cash | card_machine
+  paidVia String?
+
+  /// One chase at the due date, one at +7 days. Two columns, not a table: the
+  /// app sends exactly two and then stops nagging.
+  dueReminderSentAt     DateTime?
+  overdueReminderSentAt DateTime?
+
+  stripeCheckoutSessionId String? @unique
+  token                   String? @unique
+
+  notes     String?
+  createdAt DateTime @default(now())
+
+  operator Operator      @relation(fields: [operatorId], references: [id])
+  booking  Booking       @relation(fields: [bookingId], references: [id])
+  lines    InvoiceLine[]
+
+  @@index([bookingId])
+  @@index([operatorId, status])
+}
+
+/// Snapshotted at issue from the job's done QuoteLineItems plus its approved
+/// Variations. A copy, not a relation: editing a job after invoicing must not
+/// change what was billed.
+model InvoiceLine {
+  id             String @id @default(cuid())
+  invoiceId      String
+  description    String
+  qty            Float  @default(1)
+  unitPricePence Int    @default(0)
+  amountPence    Int
+  vatRateBps     Int    @default(0)
+  sortOrder      Int    @default(0)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+/// Work this boat is due. Computed nightly from Equipment ages and intervals,
+/// plus the seasonal sweeps. Sending a batch of these is the sales pitch: it
+/// is work the trade did not have to chase.
+model Reminder {
+  id          String  @id @default(cuid())
+  vesselId    String
+  equipmentId String?
+
+  /// service_due | rig_age | antifoul | winterise | commission | custom
+  kind   String
+  /// LondonDate "yyyy-MM-dd"
+  dueOn  String
+  /// upcoming | sent | booked | dismissed
+  status String @default("upcoming")
+
+  /// Shown to the owner verbatim in the email.
+  message String?
+
+  sentAt    DateTime?
+  /// Single-use "Yes, book me in" link -- creates an Enquiry card on the board.
+  token     String?   @unique
+  /// Set when the owner clicked through and a card was raised.
+  bookingId String?
+
+  createdAt DateTime @default(now())
+
+  vessel    Vessel     @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  equipment Equipment? @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+
+  @@index([vesselId, status])
+  @@index([status, dueOn])
+}
+
+// ---------------------------------------------------------------------------
+// PARKED — marina/yard era. Behind FEATURE_YARD. Out of nav, out of the seed.
+// Not dropped: ANALYSIS-TRADES.md §5 says park, and asks before any table goes.
+// ---------------------------------------------------------------------------
+
+/// PARKED. A service the yard offered: liftout, survey, rig inspection.
 model SessionType {
   id              String  @id @default(cuid())
   operatorId      String
@@ -58,12 +582,8 @@ model SessionType {
   slug            String
   description     String?
   durationMinutes Int
-  /// How many vessels the yard can take in one slot. Usually 1 -- a crane does
-  /// one boat at a time -- but a surveyor's day might hold several.
   defaultCapacity Int     @default(1)
-  /// Percentage of the agreed quote taken to confirm the booking.
   depositPercent  Int     @default(50)
-  /// Some work is scheduled against a tide window rather than a clock.
   tideDependent   Boolean @default(false)
   active          Boolean @default(true)
   sortOrder       Int     @default(0)
@@ -74,8 +594,7 @@ model SessionType {
   @@unique([operatorId, slug])
 }
 
-/// A bookable slot in the yard diary. capacity is SNAPSHOTTED from the
-/// service's default at creation, then independently editable.
+/// PARKED. A bookable slot in the yard diary.
 model Session {
   id            String   @id @default(cuid())
   operatorId    String
@@ -85,7 +604,6 @@ model Session {
   capacity      Int
   /// scheduled | cancelled
   status        String   @default("scheduled")
-  /// e.g. "HW Lymington 11:20" -- shown to the customer on a tidal slot.
   notes         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -99,154 +617,12 @@ model Session {
   @@index([sessionTypeId, startsAt])
 }
 
-model Customer {
-  id         String   @id @default(cuid())
-  operatorId String
-  name       String
-  /// Always stored lowercased. Never query with mode:'insensitive' (Postgres-only).
-  email      String
-  phone      String?
-  createdAt  DateTime @default(now())
-
-  operator Operator  @relation(fields: [operatorId], references: [id])
-  vessels  Vessel[]
-  bookings Booking[]
-
-  @@unique([operatorId, email])
-}
-
-/// The boat. A yard talks about the vessel first and the owner second, and the
-/// same owner routinely has more than one.
-model Vessel {
-  id           String   @id @default(cuid())
-  operatorId   String
-  customerId   String
-  name         String
-  /// Length overall. Drives the crane strop setup and most of the quote.
-  lengthMetres Float?
-  /// "Westerly Konsort", "Fairline Targa 34"
-  make         String?
-  /// Fin, bilge, long -- the yard needs this before it lifts anything.
-  keelType     String?
-  /// "Pontoon C, berth 14" or "Ashore, yard row 3"
-  berth        String?
-  notes        String?
-  createdAt    DateTime @default(now())
-
-  operator Operator  @relation(fields: [operatorId], references: [id])
-  customer Customer  @relation(fields: [customerId], references: [id])
-  bookings Booking[]
-
-  @@index([customerId])
-}
-
-/// One job, on one vessel. The centre of the model.
-///
-/// A job arrives one of two ways and the difference is whether sessionId is
-/// set at creation:
-///   * the customer books a published slot  -> sessionId set, status 'enquiry'
-///   * the customer requests work           -> sessionId null, status 'enquiry'
-/// Either way the yard quotes it, the customer accepts, and only then is there
-/// a deposit to pay.
-model Booking {
-  id         String @id @default(cuid())
-  /// Human-readable, e.g. HS-7QK2ND. Used in emails and as the public URL key.
-  reference  String @unique
-  operatorId String
-  /// NULL until the yard schedules it. An unscheduled job is a real job.
-  sessionId  String?
-  customerId String
-  vesselId   String
-
-  /// What the customer said they wanted, in their words.
-  requestNotes String?
-
-  /// The quote TOTAL. NULL until the yard has priced the job -- this is why
-  /// depositPence is nullable too, and why nothing may assume a price exists.
-  /// When lineItems exist this is their sum, computed once at quote time and
-  /// stored, so a quote already sent can never be re-totalled underneath the
-  /// customer by a later edit.
-  quotedPence Int?
-  quotedAt    DateTime?
-  /// Free text shown with the quote: what is and is not included.
-  quoteNotes  String?
-  acceptedAt  DateTime?
-
-  /// Math.round(depositPercent/100 * quotedPence), computed ONCE when the
-  /// customer accepts the quote and never recomputed. It survives a later
-  /// re-quote and it transfers unchanged when a job is rebooked onto a new slot.
-  depositPence Int?
-
-  /// enquiry | quoted | declined | pending_payment | paid | expired
-  /// | cancelled | awaiting_rebook | completed | no_show
-  status    String    @default("enquiry")
-  /// When a pending_payment hold stops consuming a slot. Mirrors Stripe
-  /// Checkout expires_at (30 min, Stripe's minimum).
-  expiresAt DateTime?
-
-  stripeCheckoutSessionId String?   @unique
-  stripePaymentIntentId   String?   @unique
-  paidAt                  DateTime?
-
-  /// Work done, or the boat was not there / not ready.
-  completedAt        DateTime?
-  attendanceMarkedAt DateTime?
-  cancelledAt        DateTime?
-
-  /// Single-use token emailed to the customer when their slot is cancelled.
-  rebookToken           String?   @unique
-  /// Set when this row was MOVED off a cancelled slot onto a new one.
-  rebookedFromSessionId String?
-  rebookedAt            DateTime?
-
-  /// Single-use token emailed with a quote, so the customer can accept it
-  /// without an account. Cleared the moment it is spent.
-  quoteToken String? @unique
-
-  /// Lives here, not on Session: reminders are per-job.
-  reminderSentAt DateTime?
-
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  operator  Operator        @relation(fields: [operatorId], references: [id])
-  session   Session?        @relation(fields: [sessionId], references: [id])
-  customer  Customer        @relation(fields: [customerId], references: [id])
-  vessel    Vessel          @relation(fields: [vesselId], references: [id])
-  emailLogs EmailLog[]
-  lineItems QuoteLineItem[]
-
-  @@index([sessionId, status])
-  @@index([customerId])
-  @@index([status, createdAt])
-}
-
-/// One line on a quote: "Wire, terminals & turnbuckles — 1 set — £1,420".
-///
-/// Quantity is free text rather than a number. A yard quotes in its own units
-/// -- "1 set", "32h", "2 lifts", or nothing at all for consumables -- and
-/// forcing that into a decimal with a separate unit column buys nothing when
-/// the line total is typed anyway.
-model QuoteLineItem {
-  id          String  @id @default(cuid())
-  bookingId   String
-  description String
-  quantity    String?
-  amountPence Int
-  sortOrder   Int     @default(0)
-
-  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-
-  @@index([bookingId])
-}
-
+/// PARKED. Repointed in F4 to "visit postponed" -- see Visit.
 model SessionCancellation {
   id          String   @id @default(cuid())
   sessionId   String   @unique
   /// weather | tide | mechanical | other
   reason      String
-  /// Free text, shown verbatim in the cancellation email.
   note        String?
   cancelledAt DateTime @default(now())
   cancelledBy String   @default("admin")
@@ -254,16 +630,22 @@ model SessionCancellation {
   session Session @relation(fields: [sessionId], references: [id])
 }
 
-/// The evidence trail behind "3 customers notified".
-/// Notified count = count(EmailLog where sessionId=X, type='cancellation', status='sent').
-/// One query, one source of truth -- no denormalised counter to drift.
+// ---------------------------------------------------------------------------
+
+/// The evidence trail behind "8 owners notified".
+/// Counted, never stored as a counter -- nothing to drift out of step with
+/// what was actually sent. This is why the local-mode email path still writes
+/// rows with no Resend key: otherwise the headline number reads 0 in a demo.
 model EmailLog {
   id String @id @default(cuid())
 
-  /// enquiry_received | quote | booking_confirmation | cancellation
-  /// | rebook_confirmation | reminder | contact_form
-  type String
-  /// The customer's real address (what we intended).
+  /// enquiry_received | estimate | variation | variation_reminder
+  /// | job_update | visit_postponed | service_reminder | invoice
+  /// | invoice_reminder | contact_form
+  /// (plus the parked yard types: quote, booking_confirmation, cancellation,
+  /// rebook_confirmation, reminder)
+  type        String
+  /// The owner's real address (what we intended).
   toEmail     String
   /// Where it actually went (DEMO_EMAIL_REDIRECT, if set).
   deliveredTo String
@@ -277,6 +659,7 @@ model EmailLog {
   bookingId  String?
   sessionId  String?
   customerId String?
+  vesselId   String?
 
   createdAt DateTime @default(now())
 
@@ -284,6 +667,7 @@ model EmailLog {
 
   @@index([sessionId, type])
   @@index([bookingId])
+  @@index([type, createdAt])
 }
 
 /// Stripe webhook idempotency. The handler creates this row FIRST, inside the

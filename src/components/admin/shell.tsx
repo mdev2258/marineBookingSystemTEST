@@ -16,12 +16,9 @@ export async function AdminShell({ children }: { children: React.ReactNode }) {
       <header className="border-b border-divider bg-white">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
           <nav className="flex items-center gap-4">
-            <Link href="/admin/day" className="font-semibold tracking-tight hover:text-brand-700">
-              Day
-            </Link>
-            <Link href="/admin/sessions" className="font-semibold tracking-tight hover:text-brand-700">
-              Diary
-            </Link>
+            {/* Day and Diary were the yard's screens and are parked behind
+                FEATURE_YARD (ANALYSIS-TRADES.md §5). The board replaces them
+                as the first screen after login. */}
             <Link
               href="/admin/enquiries"
               className="flex items-center gap-1.5 font-semibold tracking-tight hover:text-brand-700"

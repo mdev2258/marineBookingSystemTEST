@@ -87,3 +87,52 @@ export function formatLondonDateString(date: LondonDate): string {
 export function minutesUntil(instant: Date, now: Date = new Date()): number {
   return Math.round((instant.getTime() - now.getTime()) / 60_000);
 }
+
+/**
+ * Calendar arithmetic in MONTHS on the date string itself.
+ *
+ * Clamps to the end of the shorter month, so 31 Jan + 1 month is 28 Feb and
+ * not 3 March. Service intervals are quoted in months ("annual service", "every
+ * 24 months") and a rolling reminder that drifts a day every year is a reminder
+ * nobody trusts.
+ */
+export function addMonths(date: LondonDate, months: number): LondonDate {
+  const [y, m, d] = date.split('-').map(Number);
+  const target = new Date(Date.UTC(y, m - 1 + months, 1));
+  const lastDay = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  target.setUTCDate(Math.min(d, lastDay));
+  return londonDateString(target);
+}
+
+/** Calendar arithmetic in YEARS. Standing rigging is quoted in years. */
+export function addYears(date: LondonDate, years: number): LondonDate {
+  return addMonths(date, years * 12);
+}
+
+/**
+ * Whole years between two London dates, rounded down: "standing rigging is 11
+ * years old". Counts completed anniversaries, so it never reads a day early.
+ */
+export function yearsBetween(from: LondonDate, to: LondonDate): number {
+  const [fy, fm, fd] = from.split('-').map(Number);
+  const [ty, tm, td] = to.split('-').map(Number);
+  let years = ty - fy;
+  if (tm < fm || (tm === fm && td < fd)) years -= 1;
+  return years;
+}
+
+/** Whole months between two London dates, rounded down. */
+export function monthsBetween(from: LondonDate, to: LondonDate): number {
+  const [fy, fm, fd] = from.split('-').map(Number);
+  const [ty, tm, td] = to.split('-').map(Number);
+  let months = (ty - fy) * 12 + (tm - fm);
+  if (td < fd) months -= 1;
+  return months;
+}
+
+/** The London month, 1-12. Drives the seasonal reminder sweeps. */
+export function londonMonth(date: LondonDate): number {
+  return Number(date.split('-')[1]);
+}

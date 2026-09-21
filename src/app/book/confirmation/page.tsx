@@ -5,6 +5,7 @@ import { PublicShell } from '@/components/public-shell';
 import { verifyAndMarkPaid } from '@/lib/payments';
 import { formatPence } from '@/lib/money';
 import { formatDateLong, formatTimeRange } from '@/lib/time';
+import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +21,7 @@ export const metadata: Metadata = { title: 'Deposit received — Harbourside Mar
  * second call matches zero rows and sends no second confirmation email.
  */
 export default async function ConfirmationPage(props: PageProps<'/book/confirmation'>) {
+  yardOnly();
   const params = await props.searchParams;
   const cs = typeof params.cs === 'string' ? params.cs : null;
   const ref = typeof params.ref === 'string' ? params.ref : null;
@@ -50,7 +52,7 @@ export default async function ConfirmationPage(props: PageProps<'/book/confirmat
       session: { include: { sessionType: true } },
     },
   });
-  if (!booking) return null;
+  if (!booking || !booking.vessel || !booking.customer) return null;
 
   const deposit = booking.depositPence ?? 0;
   const balance = Math.max(0, (booking.quotedPence ?? 0) - deposit);

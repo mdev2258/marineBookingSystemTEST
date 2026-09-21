@@ -57,8 +57,20 @@ const bookingInclude = {
   session: { include: { sessionType: true, cancellation: true } },
 } as const;
 
+/**
+ * Loads a job that can actually be emailed about.
+ *
+ * Since jobs became capturable with no boat and no owner (schema.prisma >
+ * Booking), an email needs somewhere to go and something to be about, and a
+ * jotted card has neither. Narrowing here rather than at forty call sites
+ * means every template below can treat customer and vessel as present, and a
+ * caller that tries to notify an unsorted jot gets the same null it already
+ * handles for a missing job.
+ */
 async function loadBooking(bookingId: string) {
-  return prisma.booking.findUnique({ where: { id: bookingId }, include: bookingInclude });
+  const b = await prisma.booking.findUnique({ where: { id: bookingId }, include: bookingInclude });
+  if (!b || !b.customer || !b.vessel) return null;
+  return { ...b, customer: b.customer, vessel: b.vessel };
 }
 
 /** "Kittiwake (Westerly Konsort, 8.8m)" */
@@ -106,7 +118,7 @@ Harbourside Marine`;
     ),
     bookingId: b.id,
     sessionId: b.sessionId ?? undefined,
-    customerId: b.customerId,
+    customerId: b.customer.id,
   });
 }
 
@@ -149,7 +161,7 @@ Harbourside Marine`;
     ),
     bookingId: b.id,
     sessionId: b.sessionId ?? undefined,
-    customerId: b.customerId,
+    customerId: b.customer.id,
   });
 }
 
@@ -205,7 +217,7 @@ Harbourside Marine`;
     ),
     bookingId: b.id,
     sessionId: b.sessionId ?? undefined,
-    customerId: b.customerId,
+    customerId: b.customer.id,
   });
 }
 
@@ -262,7 +274,7 @@ Harbourside Marine`;
     ),
     bookingId: b.id,
     sessionId: b.sessionId ?? undefined,
-    customerId: b.customerId,
+    customerId: b.customer.id,
   });
 }
 
@@ -305,7 +317,7 @@ Harbourside Marine`;
     ),
     bookingId: b.id,
     sessionId: b.sessionId ?? undefined,
-    customerId: b.customerId,
+    customerId: b.customer.id,
   });
 }
 
@@ -353,7 +365,7 @@ Harbourside Marine`;
     ),
     bookingId: b.id,
     sessionId: b.sessionId ?? undefined,
-    customerId: b.customerId,
+    customerId: b.customer.id,
   });
 }
 

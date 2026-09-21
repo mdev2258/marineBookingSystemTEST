@@ -7,6 +7,7 @@ import { CancelForm } from '@/components/admin/cancel-form';
 import { cancelSession } from '@/app/admin/sessions/actions';
 import { CANCELLATION_REASON_LABEL, type CancellationReason } from '@/lib/enums';
 import { formatDateLong, formatTimeRange } from '@/lib/time';
+import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +19,7 @@ export const metadata: Metadata = { title: 'Cancel slot — Harbourside Marine' 
  * instead of re-offering an action that has already happened.
  */
 export default async function CancelSessionPage(props: PageProps<'/admin/sessions/[id]/cancel'>) {
+  yardOnly();
   const { id } = await props.params;
 
   const session = await prisma.session.findUnique({

@@ -5,12 +5,14 @@ import { AdminShell } from '@/components/admin/shell';
 import { SessionForm } from '@/components/admin/session-form';
 import { createSession } from '@/app/admin/sessions/actions';
 import { todayInLondon } from '@/lib/time';
+import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'New slot — Harbourside Marine' };
 
 export default async function NewSessionPage() {
+  yardOnly();
   const sessionTypes = await prisma.sessionType.findMany({
     where: { active: true },
     orderBy: { sortOrder: 'asc' },

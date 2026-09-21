@@ -88,3 +88,216 @@ export function isBookingStatus(v: string): v is BookingStatus {
 export function isCancellationReason(v: string): v is CancellationReason {
   return (CANCELLATION_REASON as readonly string[]).includes(v);
 }
+
+// ---------------------------------------------------------------------------
+// THE BOARD — ANALYSIS-TRADES.md §4.
+//
+// Everything above this line except EMAIL_* belongs to the PARKED yard flow.
+// Board code reads Booking.column, never Booking.status.
+// ---------------------------------------------------------------------------
+
+/**
+ * The eight board columns, in board order. A card's column IS its state.
+ *
+ * 'paid' is a ninth value that is deliberately NOT a column: a paid job drops
+ * off the board into the boat's history. Keeping it in the same field means
+ * "where is this job" has exactly one answer.
+ */
+export const JOB_COLUMN = [
+  'jotted',
+  'enquiry',
+  'estimate_sent',
+  'booked',
+  'waiting',
+  'on_it',
+  'done_to_invoice',
+  'invoiced',
+] as const;
+export type JobColumn = (typeof JOB_COLUMN)[number];
+
+/** Off-board. A job here is history, not work in hand. */
+export const JOB_COLUMN_ARCHIVED = 'paid' as const;
+
+export const JOB_COLUMN_LABEL: Record<JobColumn, string> = {
+  jotted: 'Jotted',
+  enquiry: 'Enquiry',
+  estimate_sent: 'Estimate sent',
+  booked: 'Booked',
+  waiting: 'Waiting',
+  on_it: 'On it',
+  done_to_invoice: 'Done — to invoice',
+  invoiced: 'Invoiced',
+};
+
+/** What the owner is told, in plain English. Never show them 'done_to_invoice'. */
+export const JOB_COLUMN_OWNER_LABEL: Record<JobColumn, string> = {
+  jotted: 'Noted',
+  enquiry: 'Looking into it',
+  estimate_sent: 'Estimate sent — waiting for you',
+  booked: 'Booked in',
+  waiting: 'Waiting',
+  on_it: 'In progress',
+  done_to_invoice: 'Finished',
+  invoiced: 'Invoiced',
+};
+
+export function isJobColumn(v: string): v is JobColumn {
+  return (JOB_COLUMN as readonly string[]).includes(v);
+}
+
+/**
+ * Why a card is stuck. A card in the Waiting column MUST carry one of these --
+ * enforced on the write path, because "waiting" with no reason is exactly the
+ * hole that things fall into on a scrap of paper.
+ */
+export const WAITING_REASON = [
+  'yard_lift',
+  'crane',
+  'parts',
+  'owner_decision',
+  'weather',
+  'tide',
+  'access',
+  'other',
+] as const;
+export type WaitingReason = (typeof WAITING_REASON)[number];
+
+export const WAITING_REASON_LABEL: Record<WaitingReason, string> = {
+  yard_lift: 'Yard lift',
+  crane: 'Crane',
+  parts: 'Parts',
+  owner_decision: 'Owner decision',
+  weather: 'Weather',
+  tide: 'Tide',
+  access: 'Access / keys',
+  other: 'Other',
+};
+
+export function isWaitingReason(v: string): v is WaitingReason {
+  return (WAITING_REASON as readonly string[]).includes(v);
+}
+
+export const PLACE_KIND = ['yard', 'marina', 'mooring', 'drying_mooring', 'trailer', 'other'] as const;
+export type PlaceKind = (typeof PLACE_KIND)[number];
+
+export const PLACE_KIND_LABEL: Record<PlaceKind, string> = {
+  yard: 'Yard',
+  marina: 'Marina',
+  mooring: 'Mooring',
+  drying_mooring: 'Drying mooring',
+  trailer: 'Trailer',
+  other: 'Other',
+};
+
+export const EQUIPMENT_KIND = [
+  'engine',
+  'outboard',
+  'standing_rigging',
+  'running_rigging',
+  'furler',
+  'sail',
+  'seacock',
+  'gas',
+  'electrics',
+  'other',
+] as const;
+export type EquipmentKind = (typeof EQUIPMENT_KIND)[number];
+
+export const EQUIPMENT_KIND_LABEL: Record<EquipmentKind, string> = {
+  engine: 'Engine',
+  outboard: 'Outboard',
+  standing_rigging: 'Standing rigging',
+  running_rigging: 'Running rigging',
+  furler: 'Furler',
+  sail: 'Sail',
+  seacock: 'Seacocks',
+  gas: 'Gas',
+  electrics: 'Electrics',
+  other: 'Other',
+};
+
+/** A line of work. Labour is priced off the business's default rate. */
+export const LINE_KIND = ['labour', 'parts', 'subcontract', 'other'] as const;
+export type LineKind = (typeof LINE_KIND)[number];
+
+export const LINE_KIND_LABEL: Record<LineKind, string> = {
+  labour: 'Labour',
+  parts: 'Parts',
+  subcontract: 'Subcontract',
+  other: 'Other',
+};
+
+export const ESTIMATE_STATUS = ['draft', 'sent', 'accepted', 'declined', 'superseded'] as const;
+export type EstimateStatus = (typeof ESTIMATE_STATUS)[number];
+
+export const VARIATION_STATUS = ['awaiting_owner', 'approved', 'declined', 'withdrawn'] as const;
+export type VariationStatus = (typeof VARIATION_STATUS)[number];
+
+/**
+ * How a decision reached us. 'phone' is a first-class citizen, not a fallback:
+ * ANALYSIS-TRADES.md §3.5 -- the app records what happened, it never forces
+ * the owner online.
+ */
+export const DECIDED_VIA = ['link', 'phone', 'in_person', 'text'] as const;
+export type DecidedVia = (typeof DECIDED_VIA)[number];
+
+export const DECIDED_VIA_LABEL: Record<DecidedVia, string> = {
+  link: 'By link',
+  phone: 'Agreed by phone',
+  in_person: 'Agreed in person',
+  text: 'Agreed by text',
+};
+
+export function isDecidedVia(v: string): v is DecidedVia {
+  return (DECIDED_VIA as readonly string[]).includes(v);
+}
+
+export const VISIT_STATUS = ['planned', 'done', 'postponed'] as const;
+export type VisitStatus = (typeof VISIT_STATUS)[number];
+
+export const INVOICE_STATUS = ['draft', 'sent', 'paid', 'void'] as const;
+export type InvoiceStatus = (typeof INVOICE_STATUS)[number];
+
+export const PAID_VIA = ['link', 'bank', 'cash', 'card_machine'] as const;
+export type PaidVia = (typeof PAID_VIA)[number];
+
+export const PAID_VIA_LABEL: Record<PaidVia, string> = {
+  link: 'Card, by link',
+  bank: 'Bank transfer',
+  cash: 'Cash',
+  card_machine: 'Card machine',
+};
+
+export const REMINDER_KIND = [
+  'service_due',
+  'rig_age',
+  'antifoul',
+  'winterise',
+  'commission',
+  'custom',
+] as const;
+export type ReminderKind = (typeof REMINDER_KIND)[number];
+
+export const REMINDER_KIND_LABEL: Record<ReminderKind, string> = {
+  service_due: 'Service due',
+  rig_age: 'Rigging age',
+  antifoul: 'Antifoul',
+  winterise: 'Winterisation',
+  commission: 'Spring commissioning',
+  custom: 'Reminder',
+};
+
+export const REMINDER_STATUS = ['upcoming', 'sent', 'booked', 'dismissed'] as const;
+export type ReminderStatus = (typeof REMINDER_STATUS)[number];
+
+/** Email types added for the trades product. The yard types above stay valid. */
+export const TRADE_EMAIL_TYPE = [
+  'estimate',
+  'variation',
+  'variation_reminder',
+  'job_update',
+  'visit_postponed',
+  'service_reminder',
+  'invoice',
+  'invoice_reminder',
+] as const;

@@ -9,12 +9,14 @@ import { placesTaken, spacesLeftFrom } from '@/lib/availability';
 import { formatPence } from '@/lib/money';
 import { BOOKING_STATUS_LABEL, CANCELLATION_REASON_LABEL, type BookingStatus, type CancellationReason } from '@/lib/enums';
 import { formatDateLong, formatTime, formatTimeRange, londonDateString } from '@/lib/time';
+import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Slot — Harbourside Marine' };
 
 export default async function SessionDetailPage(props: PageProps<'/admin/sessions/[id]'>) {
+  yardOnly();
   const { id } = await props.params;
 
   const session = await prisma.session.findUnique({
@@ -24,7 +26,7 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
       cancellation: true,
       bookings: {
         orderBy: { createdAt: 'asc' },
-        include: { customer: true, vessel: true },
+        include: { customer: true, vessel: { include: { currentPlace: true } } },
       },
     },
   });
@@ -117,7 +119,12 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
         <p className="rounded-lg border border-divider p-4 text-neutral-600">Nothing booked in.</p>
       ) : (
         <ul className="divide-y divide-divider rounded-lg border border-divider">
-          {session.bookings.map((booking) => (
+          {session.bookings.map((booking) => {
+            // PARKED yard screen. A slot only ever held jobs with a boat and
+            // an owner; a board-era jot has neither.
+            if (!booking.vessel || !booking.customer) return null;
+
+            return (
             <li key={booking.id} className="p-4">
               <p className="font-semibold">{booking.vessel.name}</p>
               <p className="text-sm text-neutral-700">
@@ -125,7 +132,7 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
                   booking.vessel.make,
                   booking.vessel.lengthMetres ? `${booking.vessel.lengthMetres}m` : null,
                   booking.vessel.keelType ? `${booking.vessel.keelType} keel` : null,
-                  booking.vessel.berth,
+                  booking.vessel.currentPlace?.shortName ?? null,
                 ]
                   .filter(Boolean)
                   .join(' · ')}
@@ -152,7 +159,8 @@ export default async function SessionDetailPage(props: PageProps<'/admin/session
                   : ''}
               </p>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </AdminShell>

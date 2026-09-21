@@ -5,12 +5,14 @@ import { AdminShell } from '@/components/admin/shell';
 import { ReminderButton } from '@/components/admin/reminder-button';
 import { placesTakenBySession, spacesLeftFrom } from '@/lib/availability';
 import { addDays, formatDateShort, formatTimeRange, londonDayBounds, todayInLondon } from '@/lib/time';
+import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Diary — Harbourside Marine' };
 
 export default async function SessionsPage() {
+  yardOnly();
   const now = new Date();
 
   const sessions = await prisma.session.findMany({

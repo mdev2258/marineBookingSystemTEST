@@ -7,12 +7,14 @@ import { BookingForm } from '@/components/booking-form';
 import { requestSlot } from '@/app/book/actions';
 import { placesTaken, spacesLeftFrom } from '@/lib/availability';
 import { formatDateLong, formatTimeRange } from '@/lib/time';
+import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Ask for a slot — Harbourside Marine' };
 
 export default async function BookSessionPage(props: PageProps<'/book/[sessionId]'>) {
+  yardOnly();
   const { sessionId } = await props.params;
 
   const session = await prisma.session.findUnique({

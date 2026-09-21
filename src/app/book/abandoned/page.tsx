@@ -1,11 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { PublicShell } from '@/components/public-shell';
+import { yardOnly } from '@/lib/features';
 
 export const metadata: Metadata = { title: 'Payment cancelled — Harbourside Marine' };
 
 /** Stripe's cancel_url. Nothing to undo: the hold lapses on its own. */
 export default function AbandonedPage() {
+  yardOnly();
   return (
     <PublicShell width="narrow">
       <h1 className="text-2xl font-semibold tracking-tight">No payment taken</h1>

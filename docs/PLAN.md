@@ -1,234 +1,293 @@
-# Marine Booking — Approved Demo Plan
+# Marine Booking — Demo Plan
 
-> This is the signed-off plan, reproduced so that the payments specialist and any
-> reviewer are reading the same source of truth.
+> **Rewritten 2026-09-21 for the trades product.** The previous version of this
+> file described a sailing school, and the version before the pivot described a
+> boatyard. Both are gone. `ANALYSIS-TRADES.md` is the research this plan
+> implements and wins any disagreement with this file.
 >
-> **Boundary note:** the initial build deliberately stops at the payments seam.
-> `src/lib/payments.ts` contains three stubbed-but-fully-typed functions.
-> `stripe`, `src/app/api/stripe/webhook/route.ts` and every Stripe SDK call are
-> the specialist's to add. The app demos end to end on the stubs alone.
+> **Boundary note:** the build deliberately stops at the payments seam.
+> `src/lib/payments.ts` contains stubbed-but-fully-typed functions. `stripe`,
+> `src/app/api/stripe/webhook/route.ts` and every Stripe SDK call are the
+> specialist's to add. The app demos end to end on the stubs alone.
 
-Stack: Next 16.3.5 (App Router, TS, Tailwind v4), React 19, **Prisma pinned to 6.19.3**, `resend@6`, `jose` (Edge-safe HS256 cookie), `date-fns-tz`. (`stripe@22` is the specialist's to install.)
+Stack: Next 16.3.5 (App Router, TS, Tailwind v4), React 19, **Prisma pinned to
+6.19.3**, `resend@6`, `jose` (Edge-safe HS256 cookie), `date-fns-tz`.
+(`stripe@22` is the specialist's to install.)
+
+## 0. Who this is for
+
+One marine tradesperson — a shipwright, rigger, marine diesel engineer or
+marine electrician, one to five people — working Chichester Harbour and the
+eastern Solent. Not a marina. Not a boatyard.
+
+Their job list currently lives in their head, on scrap paper, and in a scroll
+of texts. Office software has existed for years and they still do not use it,
+because **structured data entry is slower than a scrap of paper.** So:
+
+> **Capture first, organise later.** Getting a job out of their head must be
+> quicker than writing it on the back of their hand — one line, no required
+> fields. The board is where those captures get sorted, and everything else
+> grows out of moving cards on it.
+
+Four things make this different from a plumber's job app, and they are the only
+reasons to build it rather than sell them Tradify:
+
+1. **The asset is the boat, not an address** — and the boat moves between yard,
+   pontoon and mooring.
+2. **The owner is somewhere else.** Every approval is remote.
+3. **Work waits on other people** — the yard's crane, the tide, the weather,
+   parts. "Waiting" is a first-class state with a reason attached.
+4. **Records matter for years.** Insurers ask the age of standing rigging and
+   want dated receipts. The trade holding those records gets the next job.
 
 ## 1. Prisma data model
 
-**Global rules for dialect portability** (SQLite dev <-> Postgres prod):
+**Global rules for dialect portability** (SQLite dev <-> Postgres prod). These
+survive from the previous plan unchanged and still bite:
 
 | Avoid | Use instead | Why |
 |---|---|---|
 | `enum` blocks | `String` column + TS `as const` union + Zod | Prisma enum support on SQLite has been inconsistent across versions; string columns are identical SQL on both |
-| `@db.*` native types | plain `String` / `Int` / `DateTime` | `@db.VarChar`, `@db.Timestamptz` are provider-specific and fail validation on the other |
+| `@db.*` native types | plain `String` / `Int` / `DateTime` | provider-specific, fail validation on the other |
 | `Decimal` | `Int` pence everywhere | SQLite has no real decimal; also kills float money bugs |
-| `Json` | `String` (none needed here) | SQLite `Json` is a string under the hood, queries diverge |
+| `Json` | `String` | SQLite `Json` is a string under the hood, queries diverge |
 | `mode: 'insensitive'` | lowercase emails on write, exact-match on read | Postgres-only; **throws** on SQLite |
 | `createMany({ skipDuplicates })` | loop or `upsert` in seed | unsupported on SQLite |
-| `migrations/` folder | **`prisma db push` on both** | migration SQL is dialect-specific; a SQLite-generated migration will not apply to Neon. This is the single most likely deploy-night failure |
+| `migrations/` folder | **`prisma db push` on both** | a SQLite-generated migration will not apply to Neon. Still the single most likely deploy-night failure |
 
-Statuses as TS unions in `src/lib/enums.ts`, e.g. `BOOKING_STATUS = ['pending_payment','paid','expired','cancelled','awaiting_rebook','attended','no_show'] as const`.
+**New rule: a calendar date is a `String`, not a `DateTime`.** Anything meaning
+"a day" — `plannedOn`, `waitingUntil`, `dueOn`, `installedOn`, `lastServicedOn`
+— is `"yyyy-MM-dd"` (the `LondonDate` type). Instants stay `DateTime` and stay
+UTC. Storing a bare day as an instant is how a job planned for the 16th renders
+as the 15th on a laptop in BST, and it makes every date query sortable and
+comparable as a string.
+
+Status vocabularies are TS unions in `src/lib/enums.ts`.
+
+### Names
+
+The model names are **domain-neutral on purpose and are not renamed.** They
+already survived one pivot (sailing school -> boatyard -> trades) without a
+rename, which is the whole argument for them:
+
+| Schema | Read it as | §6 of the analysis calls it |
+|---|---|---|
+| `Operator` | the trade business | Business |
+| `Vessel` | the boat | Boat |
+| `Booking` | one job on one boat | Job |
+| `QuoteLineItem` | one line of an estimate | EstimateLine |
 
 ### Models
 
-**`Operator`** — deliberately generic; the fictional operator is one row.
-`id` cuid PK, `name`, `slug @unique`, `timezone` default `"Europe/London"`, `currency` default `"GBP"`, `contactEmail`, `phone?`, `createdAt`.
-Relations: `sessionTypes[]`, `sessions[]`, `customers[]`, `bookings[]`.
+**`Operator`** — the business. One row. Carries the things that change what the
+app prints: `tradeTypes`, `vatRegistered` + `vatNumber`,
+`defaultLabourRatePence`, `invoicePrefix` + `nextInvoiceNumber`,
+`paymentTermsDays`, `bankDetailsText`.
 
-**`SessionType`** — the lookup table that keeps this non-sailing-specific. Swap rows and it's a RIB charter or paddleboard hire; no code changes.
-`id`, `operatorId` -> Operator, `name` ("RYA Level 1 Dinghy", "Sunset RIB Blast"), `slug`, `description?`, `durationMinutes Int`, `defaultCapacity Int`, `defaultPricePence Int`, `depositPercent Int @default(50)`, `active Boolean @default(true)`, `sortOrder Int @default(0)`.
-`@@unique([operatorId, slug])`
+`vatRegistered` is load-bearing. Many sole traders are under the registration
+threshold, and when it is false **the word VAT appears nowhere** — not as a 0%
+line, not as "inc. VAT". Prices are plain totals.
 
-**`Session`**
-`id`, `operatorId`, `sessionTypeId` -> SessionType, `startsAt DateTime` (UTC instant), `endsAt DateTime`, **`capacity Int`**, **`pricePerPersonPence Int`**, `status String @default("scheduled")` (`scheduled | cancelled`), `notes?`, `createdAt`, `updatedAt`.
-`@@index([operatorId, startsAt])`, `@@index([sessionTypeId, startsAt])`
-Capacity and price are **snapshotted** from `SessionType` defaults at creation, then independently editable — never read price through the relation at booking time.
+**`Place`** — where boats live and where work happens. `name`, `shortName` (what
+fits on a card: "EYH hard"), `kind` (`yard | marina | mooring | drying_mooring
+| trailer | other`), `notes` ("keys from the office", "hot works permit").
 
-**`Customer`**
-`id`, `operatorId`, `name`, `email` (stored lowercased), `phone?`, `createdAt`.
-`@@unique([operatorId, email])`
+**`Customer`** — the owner. Unchanged.
 
-**`Booking`** — the centre of the model.
-`id` cuid, `reference String @unique` (human-readable `HS-7QK2ND`, used in emails and as the public URL key), `operatorId`, `sessionId` -> Session, `customerId` -> Customer, `partySize Int`, `pricePerPersonPence Int` (snapshot), `totalPence Int`, **`depositPence Int`**, `status String @default("pending_payment")`, **`expiresAt DateTime?`**, **`stripeCheckoutSessionId String? @unique`**, `stripePaymentIntentId String? @unique`, `paidAt?`, `attendanceMarkedAt?`, `cancelledAt?`, **`rebookToken String? @unique`**, **`rebookedFromSessionId String?`**, `rebookedAt?`, `reminderSentAt?`, `notes?`, `createdAt`, `updatedAt`.
-`@@index([sessionId, status])`, `@@index([customerId])`
+**`Vessel`** — the boat. `customerId` is **nullable**: a jot can name a boat
+before anyone knows whose it is.
 
-`depositPence = Math.round(0.5 * partySize * pricePerPersonPence)` — computed once at creation, never recomputed.
+**`VesselMove`** — append-only history of where a boat has been. Only the boat
+file reads it.
 
-**Status lifecycle:**
+**`Equipment`** — per-boat kit with an age or an interval: engine, outboard,
+standing rigging, furler, seacocks. `installedOn`, `hours`,
+`serviceIntervalMonths` / `serviceIntervalHours`, `lastServicedOn`. **This
+table is what turns into repeat work.**
 
-```
-pending_payment --paid-------------> paid --> attended | no_show
-      |                               |
-      +-expired (abandoned)           +-(session cancelled)--> awaiting_rebook --rebook--> paid
-                                      +-cancelled (admin/customer, no rebook)
-```
+**`Booking`** — one job. The card on the board.
 
-`awaiting_rebook` exists so admin can render **"3 notified, 1 rebooked, 2 awaiting"** — that counter is the demo moment.
+`column` is the job's real state: `jotted | enquiry | estimate_sent | booked |
+waiting | on_it | done_to_invoice | invoiced`, plus `paid`, which is
+deliberately not a column — a paid job drops off the board into the boat's
+history. `waitingReason` + `waitingUntil`, `plannedOn`, `placeId`, `position`
+(sparse: 100, 200, 300), `columnChangedAt`.
 
-**`SessionCancellation`**
-`id`, `sessionId String @unique` -> Session, `reason String` (`weather | tide | mechanical | other`), `note String?` (free text shown verbatim in the email), `cancelledAt`, `cancelledBy String @default("admin")`.
+**`vesselId` and `customerId` are nullable, and this is the most load-bearing
+fact in the schema.** A job can exist as one line of free text with no boat, no
+owner and no place. Every "why is this nullable?" tidy-up breaks the premise of
+the product. It is the same rule as `quotedPence`: a job exists before it has a
+price, and now, before it has a boat.
 
-**`EmailLog`** — the evidence trail for "3 customers notified".
-`id`, `type String` (`booking_confirmation | cancellation | rebook_confirmation | reminder | contact_form`), `toEmail` (the *intended* recipient), `deliveredTo` (the actual `DEMO_EMAIL_REDIRECT` address), `subject`, `status String` (`sent | failed`), `providerId String?` (Resend id), `error String?`, `bookingId?`, `sessionId?`, `customerId?`, `createdAt`.
-`@@index([sessionId, type])`, `@@index([bookingId])`
-Notified count = `count(EmailLog where sessionId = X and type = 'cancellation' and status = 'sent')`. One query, one source of truth — no denormalised counter to drift.
+`status` and the Stripe columns remain, driving the parked yard flow and the
+payment seam. **Nothing on the board reads `status`.**
 
-**`StripeEvent`** — webhook idempotency.
-`id String @id` (the Stripe `evt_...` id), `type String`, `processedAt DateTime @default(now())`.
-Handler does `prisma.stripeEvent.create()` **first, inside the transaction**; a unique violation (`P2002`) means already processed -> return 200 immediately. A column on `Booking` is the wrong shape because several event types touch one booking.
-(The initial build creates the MODEL only — the handler is the specialist's.)
+**`QuoteLineItem`** — a line of work: `kind` (`labour | parts | subcontract |
+other`), `description`, `qty` (Float — labour is quoted in hours and 2.5h is
+normal), `unitPricePence`, `amountPence`, `vatRateBps`, `done`.
 
-**`ContactMessage`** — `id`, `name`, `email`, `business?`, `message`, `createdAt`. Persisted so a Resend outage doesn't silently swallow a lead during the demo.
+Lines live on the **job**, not on the Estimate. They are the working list the
+trade ticks off (`done`); an Estimate is a document sent at a point in time
+that snapshots their total; an Invoice snapshots them again into `InvoiceLine`.
 
-No admin-session table — stateless signed JWT cookie.
+`amountPence = round(qty * unitPricePence)` is computed on write in one place
+and stored, so a sent estimate cannot be re-totalled by a later rounding change.
 
-### Do pending bookings hold capacity? — Yes.
+**`Estimate`** — `status` (`draft | sent | accepted | declined | superseded`),
+`totalPence` + `vatPence` snapshotted at send, `decidedVia`, `decisionNote`,
+`token`. Re-estimating **supersedes rather than edits**, so what the owner
+agreed to is still readable after the price changes.
 
-A `pending_payment` booking **holds its seats, but only until `expiresAt`.** Stripe Checkout `expires_at` will be 30 minutes (Stripe's minimum), mirrored into `Booking.expiresAt` at creation. The stub sets `expiresAt = now + 30min` directly.
+The word is **estimate**, not quote: non-binding, time and materials, extra
+work expected.
 
-**Spaces-left, exactly:**
+**`Variation`** — extra work found once the job is open. `description`,
+`reason`, `estimatePence`, `status` (`awaiting_owner | approved | declined |
+withdrawn`), `token`, `reminderSentAt` (exactly one chase at 24h, not a drip
+campaign). An unanswered variation puts a dot on the board card.
 
-```
-spacesLeft(session) = session.capacity - SUM(partySize) over bookings WHERE
-    sessionId = session.id
-AND ( status IN ('paid','attended','no_show')
-      OR (status = 'pending_payment' AND expiresAt > now()) )
-```
+**`PartOrder`** — `item`, `supplier`, `orderedOn`, `etaOn`, `arrivedOn`,
+`costPence`. Arrival of the last outstanding part **offers** to move the card
+out of Waiting; it never moves it on its own.
 
-`cancelled`, `expired` and `awaiting_rebook` never consume capacity. (`awaiting_rebook` belongs to a cancelled session, so it is not occupying a live one.)
+**`Visit`** — a planned attendance: `startsAt`, `placeId`, `status` (`planned |
+done | postponed`), `postponeReason`. Postponing emails the owner.
 
-Release happens two ways, neither of which correctness depends on:
+**`Invoice`** / **`InvoiceLine`** — `number` (prefix + sequence, **never
+reused**, even after a void), `issuedOn`, `dueOn`, `totalPence`, `status`,
+`paidVia`, two reminder timestamps. Lines are **snapshotted** from the job's
+done lines plus approved variations: editing a job after invoicing must not
+change what was billed.
 
-1. **`checkout.session.expired` webhook** -> flip `pending_payment` -> `expired`. Primary. (Specialist's.)
-2. **Daily cron sweep** -> same flip for any `pending_payment` with `expiresAt < now()`. Tidiness only.
+**`Reminder`** — `vesselId`, `equipmentId?`, `kind` (`service_due | rig_age |
+antifoul | winterise | commission | custom`), `dueOn`, `status`, `token`.
 
-The time predicate is baked into the availability query, so a seat is freed the instant it expires even if neither fires.
+**`EmailLog`** — unchanged, and still the evidence trail. "N owners notified" is
+a `COUNT`, never a stored counter, which is why the local-mode email path still
+writes rows with no Resend key.
 
-### Rebook transfer — **move the row.**
+**`StripeEvent`**, **`ContactMessage`** — unchanged.
 
-On rebook, the *same* `Booking` row gets `sessionId` updated, `rebookedFromSessionId` set to the cancelled session, `rebookedAt = now()`, `status` back to `paid`, `rebookToken = null` (single use). Deposit, `stripePaymentIntentId` and `reference` are untouched — the deposit transfers by virtue of never having moved.
+**Parked:** `SessionType`, `Session`, `SessionCancellation`. Behind
+`FEATURE_YARD`, out of nav, out of the seed, tables intact. See §5 of the
+analysis; **ask before dropping any of them.**
 
-Rejected cancel-and-clone: it splits one Stripe payment across two booking rows, breaks the `stripePaymentIntentId @unique` 1:1 invariant, and makes the admin day view show ghost duplicates.
+### "Agreed by phone" is always an option
 
-The deposit transfers **unchanged** even if the new session's price differs. Balance-due-on-the-day is out of scope.
+Every owner decision — an estimate, a variation — can be recorded by the trade
+with a note, via `decidedVia: 'phone' | 'in_person' | 'text'`. The app records
+what happened. It never forces the owner online, and it never treats the phone
+as a degraded path.
+
+### Idempotency stays structural
+
+The status or the token goes in the `WHERE` clause and is cleared by the same
+statement, so a double submit matches zero rows. Never check-then-write.
+
+### Email is never sent inside a transaction
+
+A rollback cannot unsend a message. Commit first, then send, one at a time.
 
 ## 2. Route structure
 
-### Pages
-
 | Route | Purpose |
 |---|---|
-| `/` | Marketing single page: problem headline, 3 problems, 3 steps, pricing, contact form |
-| `/book` | Public session list — date, time, type, price, spaces left; filter by session type; `force-dynamic` |
-| `/book/[sessionId]` | Booking form (name, email, phone, party size) -> creates pending booking -> redirects to Stripe |
-| `/book/confirmation` | Stripe `success_url` landing, `?cs={CHECKOUT_SESSION_ID}` — calls `verifyAndMarkPaid()`, then shows the reference |
-| `/book/abandoned` | Stripe `cancel_url` — "no payment taken, your hold is released" |
-| `/booking/[reference]` | Public booking detail — what was booked, deposit paid, balance due |
-| `/rebook/[token]` | Rebook picker for a customer whose session was cancelled |
-| `/admin/login` | Single hardcoded login form (env username/password) |
-| `/admin` | Redirects to `/admin/day?date=<today in London>` |
-| `/admin/day` | **Primary screen.** Day view: sessions for the date, each booking with name/phone/email/party size, attended / no-show toggles, prev/next day |
-| `/admin/sessions` | Upcoming sessions list with fill levels; entry point to create |
-| `/admin/sessions/new` | Create session — type, date, time, capacity, price (prefilled from `SessionType` defaults) |
-| `/admin/sessions/[id]` | Edit session + its bookings + "Cancel this session" |
-| `/admin/sessions/[id]/cancel` | Cancel flow: reason radio (weather/tide/mechanical/other) + note, preview "this will email N customers", confirm -> result page showing "3 customers notified, 0 failed" |
+| `/` | Marketing page, **for tradespeople** (F8) |
+| `/admin` | -> the board |
+| `/admin/board` | **The primary screen.** Columns, cards, jot, sort (F1) |
+| `/admin/boats/[id]` | Boat file: history, equipment, where it's been (F2) |
+| `/admin/reminders` | "Due this month", batch send (F5) |
+| `/admin/invoices` | List, CSV export (F6) |
+| `/admin/login` | Single login (env creds) |
+| `/boat/[token]` | Owner-facing: their boat's current jobs and work records (F2) |
+| `/estimate/[token]` | Owner accepts or declines an estimate (F3) |
+| `/variation/[token]` | Owner approves extra work (F3) |
+| `/invoice/[token]` | Owner views and pays an invoice (F6) |
+| `/reminder/[token]` | "Yes, book me in" -> creates an Enquiry card (F5) |
+| `GET /api/cron/reminders` | Nightly: compute due reminders, chase variations and invoices |
 
-### API routes
+Parked behind `FEATURE_YARD`: `/admin/day`, `/admin/sessions/*`, `/book/*`,
+`/booking/[reference]`, `/rebook/[token]`, `/request`.
 
-| Route | Purpose |
-|---|---|
-| `POST /api/stripe/webhook` | **SPECIALIST'S — not created by the initial build** |
-| `GET /api/cron/reminders` | Vercel Cron target; `Authorization: Bearer $CRON_SECRET` check; sends next-day reminders; also sweeps expired holds |
+**The owner never logs in.** Every owner-facing route is a single-use token
+link, cleared the moment it is spent.
 
-### Server actions (`src/app/**/actions.ts`)
+**Every Server Action re-checks the admin cookie itself.** `src/proxy.ts` is a
+redirect for humans, not an authorisation boundary; an action is a public POST
+endpoint in its own right.
 
-- `submitContactForm` — persist `ContactMessage`, email the freelancer, log to `EmailLog`
-- `createPendingBooking` — upsert `Customer`, re-check availability, create `Booking(pending_payment, expiresAt)`, call `startCheckout()`, redirect
-- `adminLogin` / `adminLogout` — verify env creds, set/clear signed cookie
-- `createSession` / `updateSession`
-- `markAttendance(bookingId, 'attended' | 'no_show')`
-- `cancelSession(sessionId, reason, note)` — **transaction**: set `Session.status='cancelled'`, create `SessionCancellation`, flip every `paid` booking to `awaiting_rebook` with a fresh `rebookToken`. **Then, after commit**, send cancellation emails sequentially, writing one `EmailLog` per send. Never email inside a transaction.
-- `confirmRebook(token, newSessionId)` — validate token, same `sessionTypeId`, capacity available; move the row; send rebook confirmation
-- `sendRemindersNow` — admin button calling the identical function as the cron
+## 3. Mobile-first, and then some
 
-### Middleware
+Design at **390px** first. Their office is an engine bay or the top of a mast:
+dirty hands, one free thumb, bright sun.
 
-Protect `/admin/*` (except `/admin/login`) by verifying the `jose` HS256 cookie. **Next 16 renamed `middleware.ts` -> `proxy.ts`** — use whichever file the scaffold actually generates; verify at scaffold time rather than assuming.
+- **One thumb.** Every primary action reachable one-handed. 48px targets.
+- **No drag required.** Tap to move a card; drag is a desktop bonus.
+- **Nothing blocks a save** for a missing field, with exactly one exception:
+  a card cannot enter Waiting without a reason.
+- Phone: one column at a time with tabs. Desktop: columns side by side.
 
-## 3. Seed script
+Keep the Industry design system (`DESIGN.md`) for the app. Board/TV mode is the
+one place large type and a dark ground override it.
 
-`prisma/seed.ts`, run with `tsx`. **Everything relative to "now" in `Europe/London` at run time** — never hardcoded dates. Re-runnable: delete all rows in FK-safe order first. **Must never send email** (writes `EmailLog` rows directly).
+## 4. Build order
 
-- 1 `Operator`: "Harbourside Sailing", Lymington.
-- 4 `SessionType`s: *RYA Level 1 Dinghy* (6 @ £95, 4h), *Keelboat Taster* (8 @ £60, 3h), *Sunset RIB Blast* (10 @ £35, 1.5h), *Paddleboard Hire* (12 @ £20, 2h).
-- ~24 `Session`s spanning **now -10 days to now +11 days**, 2-3 per day at 09:30 / 13:30 / 17:30 London, skipping a couple of days so the day view has a realistic empty day.
-- ~18 `Customer`s, all `@example.com` — so even a missing `DEMO_EMAIL_REDIRECT` cannot reach a real person.
-- ~45 `Booking`s:
-  - **Past sessions:** all `attended` except three `no_show` and one `cancelled`.
-  - **Today:** one session ~80% full with a mix of unmarked bookings, ready to be marked live in front of the prospect.
-  - **Future:** one **nearly full** (5/6 — makes "spaces left: 1" visible), one **completely empty**, one mid-fill, plus **one live `pending_payment` with `expiresAt` 20 minutes out**.
-  - One `expired` pending in the past.
-- **One past cancelled session** with its `SessionCancellation` (reason `weather`, note "Force 6 gusting 7 in the Solent"), its bookings in `awaiting_rebook` (one already `rebookedFromSessionId`-linked onto a later session), and matching `cancellation` `EmailLog` rows.
-- A couple of `ContactMessage` rows.
+Each phase is built, checked and committed before the next starts. Acceptance
+criteria are in `ANALYSIS-TRADES.md` §7.
 
-Add `npm run seed` and `npm run reset` (`db push --force-reset` + seed).
+| | | |
+|---|---|---|
+| **F0** | Housekeeping | Schema, enums, `FEATURE_YARD`, this file, new seed, `npm run check` |
+| **F1** | The board | Columns, cards, jot, sort, waiting reasons — **the wedge** |
+| **F2** | Boat file | History, equipment ages, owner page, printable work + rig record |
+| **F3** | Estimates and variations | Send, accept by link or by phone, the dot on the card |
+| **F4** | Waiting on other people | Part orders, visits, postponement, flashing cards |
+| **F5** | Reminders | Nightly computation, "due this month", batch send — **the pitch** |
+| **F6** | Invoices | Numbering, VAT-conditional, pay link, chasing, CSV |
+| **F7** | Print | Job sheet, printable board |
+| **F8** | Marketing page | Rewritten for tradespeople. **No price until the founder sets one** |
 
-## 4. Mobile-first
+## 5. Carry these through
 
-Design at 390px first; desktop is a max-width container, nothing more. Tailwind base classes unprefixed, `sm:`/`md:` only to widen.
+- `export const dynamic = 'force-dynamic'` on the board and every `/admin/*`
+  page. The production build once prerendered `/admin`'s redirect and would
+  have sent every visitor to the deploy date forever — verify in the browser,
+  not by reading.
+- All London/UTC conversion goes through `src/lib/time.ts`. **Nothing else may
+  import `date-fns-tz`.** BST ends 25 October; Vercel runs UTC; a UK laptop
+  does not.
+- Money is `Int` pence. No `Decimal`, no floats. `qty` is the only Float and it
+  is not money.
+- `npm run seed` then `npm run check` before any demo. Re-seed **minutes**
+  before showing it, not the night before.
+- The dev server holds the Prisma query-engine DLL — kill it before
+  `prisma generate` or `npm run build`, or you get an opaque EPERM rename error.
+- `prisma db push --force-reset` is blocked for AI agents without explicit
+  consent. `npm run seed` clears every table itself and is enough unless the
+  schema changed.
+- A `*/` inside a CSS comment closes it early and takes the whole stylesheet
+  down.
 
-**Most care, in order:**
+## 6. The payments seam (handover contract)
 
-1. **`/admin/day` — the pontoon screen.** One thumb, bright sun, possibly wet hands. Sticky date header with large prev/next chevrons. One card per session; one row per booking. Phone and email are `tel:` / `mailto:` links. Attended / no-show are two side-by-side buttons at **minimum 48px tall**, full-width within the row, immediate colour-state change (optimistic UI via `useOptimistic`) — no dropdowns, no swipe gestures, no modals. High contrast, no light grey on white.
-2. **`/admin/sessions/[id]/cancel`** — done in a hurry at 06:30. Large reason radio cards (not a `<select>`), a plain "This will email 7 customers" line above a single full-width destructive button, result screen stating the notified count.
-3. **`/book/[sessionId]`** — `inputMode="numeric"` on party size, `type="tel"`/`type="email"`, a stepper not a spinner, deposit recalculated live above submit.
-4. `/book` list — cards not a table; date, time, type, price, spaces-left legible without horizontal scroll.
-5. `/` marketing — plain, generous whitespace, one accent colour, sober sans. **No gradients, no hero photography, no stock imagery.** Contact form reachable fast on mobile.
+`src/lib/payments.ts` is the only file that will ever know Stripe exists.
 
-## 5. Build order
+Under the trades product the seam is **repointed from deposits to invoices**:
+there is no deposit by default. A tradesperson invoices on completion, and the
+pay link on an invoice is the one place money moves.
 
-**Phase 0 — scaffold.** `create-next-app`, `git init`, `.gitignore`. **Pin `prisma@6.19.3` and `@prisma/client@6.19.3` explicitly.** `.env.example` with: `DATABASE_URL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `AUTH_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`, `DEMO_EMAIL_REDIRECT`, `CONTACT_RECIPIENT_EMAIL`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_BASE_URL`, `CRON_SECRET`.
+Two behaviours documented in that file are demo-safe and production-unsafe
+(bare-reference mark-paid; no `expiresAt` check). They are left for a payments
+specialist on purpose. **Do not "finish" them unasked.**
 
-**Phase 1 — schema + seed.** Full `schema.prisma`, `db push`, seed, Prisma singleton, `src/lib/enums.ts`, `src/lib/money.ts`, `src/lib/time.ts` (every London-date conversion goes through this one file), `src/lib/availability.ts` (the `spacesLeft` query, used by every surface).
+## 7. Open questions — do not guess these
 
-**Phase 2 — admin auth + day view.** Build first: primary screen, seed gives it instant content.
+From `ANALYSIS-TRADES.md` §10, still open and still the founder's:
 
-**Phase 3 — session CRUD.**
-
-**Phase 4 — cancel + rebook (the sale).** `cancelSession`, email templates, `EmailLog`, notified counter, `/rebook/[token]`.
-
-**Phase 5 — public booking up to the payment seam.** `/book`, `/book/[sessionId]`, `createPendingBooking`, `/booking/[reference]`, confirmation + abandoned pages.
-
-**Phase 6 — reminders.** `sendReminders()` shared by `/api/cron/reminders` and the admin button; `vercel.json` cron `0 17 * * *`.
-
-**Phase 7 — marketing page + contact form.**
-
-## 6. Carry these through
-
-- `export const dynamic = 'force-dynamic'` on `/book` and every `/admin/*` page, or a prospect sees "3 spaces left" after the last seat went.
-- Reminders = "the evening before": cron at 17:00 UTC selects `paid` bookings whose session's *London date* is tomorrow and `reminderSentAt IS NULL`. `reminderSentAt` lives on **`Booking`, not `Session`**.
-- Rebook link = picker with the soonest same-type session **pre-selected**, not a one-click auto-move. Handle "no suitable sessions yet — we'll be in touch".
-- BST ends 25 October; Vercel runs UTC, local dev runs GMT+1. All London conversions through `src/lib/time.ts`. Sanity-check a 00:30 and a 23:30 session.
-- Last-seat race: re-check availability inside `createPendingBooking` immediately before insert. Not locked — acceptable for a demo.
-- README: setup steps, every env var explained, the Vercel/Postgres provider-edit step, and "re-seed the morning of a demo".
-
-## 7. The payments seam (handover contract)
-
-`src/lib/payments.ts` exports exactly three functions. Everything else in the app
-calls only these; nothing else knows Stripe exists.
-
-```ts
-export async function startCheckout(bookingId: string): Promise<{ url: string }>
-export async function markBookingPaid(bookingId: string, stripePaymentIntentId: string): Promise<void>
-export async function verifyAndMarkPaid(checkoutSessionId: string): Promise<{ bookingReference: string } | null>
-```
-
-- `startCheckout` — stub returns `{ url: '/book/confirmation?demo=1&ref=<reference>' }`.
-  The specialist replaces it with `stripe.checkout.sessions.create({ expires_at: now+30min, ... })`,
-  persists `stripeCheckoutSessionId` on the booking, and returns the hosted URL.
-- `markBookingPaid` — **must be safely callable twice.** Implemented as a
-  status-predicated `updateMany`, so the second call matches zero rows.
-  The webhook handler will call this.
-- `verifyAndMarkPaid` — the confirmation page calls THIS, never Stripe directly.
-  The stub resolves the booking from the demo `ref`. The specialist replaces the body with
-  `stripe.checkout.sessions.retrieve(id)` + `markBookingPaid`. Page code is unchanged.
-
-Also reserved for the specialist: `npm i stripe`, `src/app/api/stripe/webhook/route.ts`,
-and the `StripeEvent` idempotency handler (the model already exists).
+1. **Price.** Anchors: PayCamp £29/month solo, Tradify £34/user. A
+   paper-and-memory user currently pays £0. **F8 ships with no price.**
+2. Customer zero — which tradesperson sits through the three-minute demo first?
+3. Do they already pay for anything, and what do they hate about it?
+4. Are they VAT-registered?
+5. Where does their job list actually live right now? Whatever they point at is
+   what Jot has to beat.

@@ -14,6 +14,7 @@ import {
   minutesUntil,
   todayInLondon,
 } from '@/lib/time';
+import { yardOnly } from '@/lib/features';
 
 // Without this a prospect can be shown a cached "1 space left" after the last
 // place has gone.
@@ -27,6 +28,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const VISIBLE = ['paid', 'completed', 'no_show', 'pending_payment', 'awaiting_rebook'] as const;
 
 export default async function DayPage(props: PageProps<'/admin/day'>) {
+  yardOnly();
   const params = await props.searchParams;
   const raw = typeof params.date === 'string' ? params.date : '';
   const date = DATE_RE.test(raw) ? raw : todayInLondon();
@@ -47,7 +49,7 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
       bookings: {
         where: { status: { in: [...VISIBLE] } },
         orderBy: { createdAt: 'asc' },
-        include: { customer: true, vessel: true },
+        include: { customer: true, vessel: { include: { currentPlace: true } } },
       },
     },
   });
@@ -152,6 +154,11 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
                     // it as live would contradict the count above.
                     if (booking.status === 'pending_payment' && holdMinutes <= 0) return null;
 
+                    // PARKED yard screen. The diary only ever held jobs with a
+                    // boat and an owner; board-era jots have neither and have
+                    // no business in a crane slot.
+                    if (!booking.vessel || !booking.customer) return null;
+
                     return (
                       <li key={booking.id} className="p-4">
                         {/* Vessel first: the yard thinks in boats, not owners. */}
@@ -165,8 +172,10 @@ export default async function DayPage(props: PageProps<'/admin/day'>) {
                             .filter(Boolean)
                             .join(' · ')}
                         </p>
-                        {booking.vessel.berth && (
-                          <p className="text-sm text-neutral-600">{booking.vessel.berth}</p>
+                        {booking.vessel.currentPlace && (
+                          <p className="text-sm text-neutral-600">
+                            {booking.vessel.currentPlace.name}
+                          </p>
                         )}
 
                         <p className="mt-2 text-sm font-medium">{booking.customer.name}</p>

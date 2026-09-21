@@ -7,6 +7,7 @@ import { placesTakenBySession, spacesLeftFrom } from '@/lib/availability';
 import { formatPence } from '@/lib/money';
 import { CANCELLATION_REASON_LABEL, type CancellationReason } from '@/lib/enums';
 import { formatDateTime } from '@/lib/time';
+import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +18,7 @@ const Shell = ({ children }: { children: React.ReactNode }) => (
 );
 
 export default async function RebookPage(props: PageProps<'/rebook/[token]'>) {
+  yardOnly();
   const { token } = await props.params;
 
   const booking = await prisma.booking.findFirst({
@@ -33,7 +35,7 @@ export default async function RebookPage(props: PageProps<'/rebook/[token]'>) {
   // (session is non-null for any awaiting_rebook row, but the column is
   // nullable now that unscheduled jobs exist, so it is checked rather than
   // asserted.)
-  if (!booking || !booking.session) {
+  if (!booking || !booking.session || !booking.vessel || !booking.customer) {
     return (
       <Shell>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight">This link has been used</h1>

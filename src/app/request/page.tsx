@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { PublicShell } from '@/components/public-shell';
 import { BookingForm } from '@/components/booking-form';
 import { requestWork } from '@/app/book/actions';
+import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +17,7 @@ export const metadata: Metadata = { title: 'Ask us about work — Harbourside Ma
  * inbox -- this one simply arrives with no slot attached.
  */
 export default async function RequestPage() {
+  yardOnly();
   const services = await prisma.sessionType.findMany({
     where: { active: true },
     orderBy: { sortOrder: 'asc' },

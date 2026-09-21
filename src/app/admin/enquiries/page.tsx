@@ -25,7 +25,7 @@ export default async function EnquiriesPage() {
     orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
     include: {
       customer: true,
-      vessel: true,
+      vessel: { include: { currentPlace: true } },
       lineItems: { orderBy: { sortOrder: 'asc' } },
       session: { include: { sessionType: true } },
     },
@@ -59,6 +59,11 @@ export default async function EnquiriesPage() {
       ) : (
         <ul className="space-y-4">
           {jobs.map((job) => {
+            // PARKED yard screen: this inbox prices jobs that arrived through
+            // the public request form, which always captured a boat and an
+            // owner. A board-era jot has neither, and is sorted on the board.
+            if (!job.vessel || !job.customer) return null;
+
             // Only slots for the work actually asked for. A liftout slot is no
             // use to someone who wants a survey.
             const relevant: SlotOption[] = freeSlots
@@ -95,7 +100,7 @@ export default async function EnquiriesPage() {
                     job.vessel.make,
                     job.vessel.lengthMetres ? `${job.vessel.lengthMetres}m` : null,
                     job.vessel.keelType ? `${job.vessel.keelType} keel` : null,
-                    job.vessel.berth,
+                    job.vessel.currentPlace?.shortName ?? null,
                   ]
                     .filter(Boolean)
                     .join(' · ')}
@@ -137,7 +142,8 @@ export default async function EnquiriesPage() {
                   slots={relevant}
                   initialLines={job.lineItems.map<LineDraft>((line) => ({
                     description: line.description,
-                    quantity: line.quantity ?? '',
+                    // qty is a number now; blank still means one.
+                    quantity: line.qty === 1 ? '' : String(line.qty),
                     amount: penceToPoundsInput(line.amountPence),
                   }))}
                   currentNotes={job.quoteNotes ?? ''}

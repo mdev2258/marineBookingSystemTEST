@@ -6,6 +6,7 @@ import { PublicShell } from '@/components/public-shell';
 import { formatPence } from '@/lib/money';
 import { BOOKING_STATUS_LABEL, type BookingStatus } from '@/lib/enums';
 import { formatDateLong, formatTimeRange, minutesUntil } from '@/lib/time';
+import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,6 +14,7 @@ export const metadata: Metadata = { title: 'Your job — Harbourside Marine' };
 
 /** The reference is the key customers actually have, from their email. */
 export default async function BookingPage(props: PageProps<'/booking/[reference]'>) {
+  yardOnly();
   const { reference } = await props.params;
 
   const booking = await prisma.booking.findUnique({
@@ -23,7 +25,8 @@ export default async function BookingPage(props: PageProps<'/booking/[reference]
       session: { include: { sessionType: true, cancellation: true } },
     },
   });
-  if (!booking) notFound();
+  // A job with no boat or owner is an unsorted jot, which has no public page.
+  if (!booking || !booking.vessel || !booking.customer) notFound();
 
   const cancelled = booking.session?.status === 'cancelled';
   const holdMinutes = booking.expiresAt ? minutesUntil(booking.expiresAt) : 0;

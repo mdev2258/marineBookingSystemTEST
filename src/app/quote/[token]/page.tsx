@@ -26,7 +26,13 @@ export default async function QuotePage(props: PageProps<'/quote/[token]'>) {
 
   // Covers a spent link, a mistyped one, and a quote already answered.
   // Deliberately says nothing about which: the token is the only credential.
-  if (!booking || booking.quotedPence == null || !booking.session) {
+  if (
+    !booking ||
+    booking.quotedPence == null ||
+    !booking.session ||
+    !booking.vessel ||
+    !booking.customer
+  ) {
     return (
       <PublicShell width="narrow">
         <h1 className="text-3xl">This quote has been answered</h1>
@@ -74,7 +80,7 @@ export default async function QuotePage(props: PageProps<'/quote/[token]'>) {
             booking.lineItems.map((line) => (
               <div key={line.id} className="flex items-baseline gap-2 text-[13.5px]">
                 <span className="flex-1 pr-2.5">{line.description}</span>
-                <span className="muted w-14 shrink-0 text-[12.5px]">{line.quantity ?? '—'}</span>
+                <span className="muted w-14 shrink-0 text-[12.5px]">{line.qty === 1 ? '—' : line.qty}</span>
                 <span className="shrink-0 font-semibold">{formatPence(line.amountPence)}</span>
               </div>
             ))

@@ -83,7 +83,6 @@ async function upsertVessel(
         make: input.make || existing.make,
         lengthMetres: lengthMetres ?? existing.lengthMetres,
         keelType: input.keelType || existing.keelType,
-        berth: input.berth || existing.berth,
       },
     });
   }
@@ -96,7 +95,10 @@ async function upsertVessel(
       make: input.make || null,
       lengthMetres,
       keelType: input.keelType || null,
-      berth: input.berth || null,
+      // Where the boat lives is a Place now, and a public form cannot be
+      // trusted to create one. Keep what the owner typed verbatim; the trade
+      // sorts it into a Place later. Capture first, organise later.
+      notes: input.berth ? `Owner says: ${input.berth}` : null,
     },
   });
 }

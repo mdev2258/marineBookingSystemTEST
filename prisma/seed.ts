@@ -1,35 +1,54 @@
 /**
- * Demo seed — Harbourside Marine, a services yard.
+ * Demo seed — Harbourside Marine Services, a two-person rigging-and-
+ * engineering firm working Chichester Harbour and the eastern Solent.
  *
  * Everything is positioned relative to "now" in Europe/London at run time --
  * there is not a single hardcoded date in here. Re-seed shortly before a demo
- * and the diary is populated for that day, not for the day this was written.
+ * and the board reads for that day, not for the day this was written.
  *
  * Re-runnable: every table is cleared first, in FK-safe order.
  *
- * This script MUST NEVER SEND EMAIL. The cancellation EmailLog rows are
- * written directly, because the admin cancel screen counts them to say
- * "3 customers notified" and that number has to be right in a seeded demo
- * that has never had a Resend key.
+ * This script MUST NEVER SEND EMAIL. EmailLog rows are written directly,
+ * because screens count them ("8 owners notified") and that number has to be
+ * right in a seeded demo that has never had a Resend key.
+ *
+ * See ANALYSIS-TRADES.md §8 for what this is required to contain, and
+ * `npm run check` for the assertions that hold it to that.
  */
 
 import { PrismaClient } from '@prisma/client';
 // Relative imports, not the "@/" alias: tsx runs this outside Next's resolver.
-import { addDays, londonDateTimeToUtc, todayInLondon } from '../src/lib/time';
-import { depositPence } from '../src/lib/money';
+import { addDays, addMonths, addYears, todayInLondon, londonDateTimeToUtc } from '../src/lib/time';
 import { generateBookingReference, generateRebookToken } from '../src/lib/reference';
 
 const prisma = new PrismaClient();
 
-const SERVICE = {
-  liftout: 'liftout-and-pressure-wash',
-  liftin: 'lift-in-and-rig-check',
-  survey: 'pre-purchase-survey',
-  rig: 'rig-inspection',
-  shipwright: 'shipwright-hull-repair',
-} as const;
+const TODAY = todayInLondon();
+const LABOUR = 5500; // £55/h, the business default
 
-type ServiceSlug = (typeof SERVICE)[keyof typeof SERVICE];
+/** £ -> pence, for readability below. */
+const p = (pounds: number) => Math.round(pounds * 100);
+
+// ---------------------------------------------------------------------------
+// Places. A boat MOVES between these; that is the whole difference between
+// this and a plumber's address book.
+// ---------------------------------------------------------------------------
+
+const PLACES = [
+  { key: 'hard', name: 'Harbour yard (hard standing)', shortName: 'HY hard', kind: 'yard', notes: 'Book the crane through the yard office, 48h notice.' },
+  { key: 'pontoon', name: 'Harbour yard (pontoons)', shortName: 'HY pontoon', kind: 'marina', notes: null },
+  { key: 'bosham', name: 'Bosham mooring', shortName: 'Bosham', kind: 'mooring', notes: 'Tender from the hard. Dries at springs.' },
+  { key: 'hayling', name: 'Hayling half-tide', shortName: 'Hayling', kind: 'mooring', notes: null },
+  { key: 'itchenor', name: 'Itchenor drying mooring', shortName: 'Itchenor', kind: 'drying_mooring', notes: 'Only reachable either side of HW. Check the tide before setting off.' },
+  { key: 'workshop', name: 'Workshop', shortName: 'Workshop', kind: 'other', notes: 'Bench work — furlers, pumps, alternators.' },
+] as const;
+
+type PlaceKey = (typeof PLACES)[number]['key'];
+
+// ---------------------------------------------------------------------------
+// Owners. All @example.com, so even a missing DEMO_EMAIL_REDIRECT cannot
+// reach a real person.
+// ---------------------------------------------------------------------------
 
 const CUSTOMERS = [
   { name: 'Alice Fenwick', phone: '07700 900012' },
@@ -50,220 +69,83 @@ const CUSTOMERS = [
   { name: 'Sam Whitlock', phone: '07700 900319' },
   { name: 'Ffion Meredith', phone: '07700 900331' },
   { name: 'Joe Ballantyne', phone: '07700 900353' },
+  { name: 'Ruth Gillingham', phone: '07700 900375' },
+  { name: 'Peter Vane', phone: '07700 900397' },
 ];
 
-/** owner is an index into CUSTOMERS. Two owners deliberately have two boats. */
-const VESSELS = [
-  { owner: 0, name: 'Kittiwake', make: 'Westerly Konsort', lengthMetres: 8.8, keelType: 'Bilge', berth: 'Pontoon C, berth 14' },
-  { owner: 1, name: 'Morning Tide', make: 'Sadler 32', lengthMetres: 9.7, keelType: 'Fin', berth: 'Pontoon A, berth 3' },
-  { owner: 2, name: 'Bramble', make: 'Contessa 32', lengthMetres: 9.8, keelType: 'Long', berth: 'Ashore, yard row 2' },
-  { owner: 3, name: 'Osprey', make: 'Moody 36', lengthMetres: 10.9, keelType: 'Fin', berth: 'Pontoon D, berth 21' },
-  { owner: 4, name: 'Solent Mist', make: 'Jeanneau Sun Odyssey 349', lengthMetres: 10.3, keelType: 'Fin', berth: 'Pontoon B, berth 8' },
-  { owner: 5, name: 'Perseverance', make: 'Hallberg-Rassy 34', lengthMetres: 10.4, keelType: 'Long', berth: 'Pontoon A, berth 11' },
-  { owner: 6, name: 'Halcyon', make: 'Bavaria 38', lengthMetres: 11.5, keelType: 'Fin', berth: 'Pontoon D, berth 2' },
-  // Motor boats carry no keelType: "Planing keel" is not a thing and a yard
-  // would notice.
-  { owner: 7, name: 'Windflower', make: 'Fairline Targa 34', lengthMetres: 10.6, keelType: null, berth: 'Pontoon E, berth 5' },
-  { owner: 8, name: 'Gannet', make: 'Dufour 375', lengthMetres: 11.2, keelType: 'Fin', berth: 'Pontoon B, berth 19' },
-  { owner: 9, name: 'Teal', make: 'Westerly Griffon', lengthMetres: 8.2, keelType: 'Bilge', berth: 'Ashore, yard row 4' },
-  { owner: 10, name: 'Cormorant', make: 'Princess 42', lengthMetres: 12.8, keelType: null, berth: 'Pontoon E, berth 1' },
-  { owner: 11, name: 'Mistral', make: 'Beneteau Oceanis 34', lengthMetres: 10.2, keelType: 'Lifting', berth: 'Pontoon C, berth 7' },
-  { owner: 12, name: 'Puffin', make: 'Cornish Crabber 24', lengthMetres: 7.3, keelType: 'Long', berth: 'Swinging mooring 12' },
-  { owner: 13, name: 'Whimbrel', make: 'Rustler 36', lengthMetres: 11.0, keelType: 'Long', berth: 'Pontoon A, berth 17' },
-  { owner: 14, name: 'Redshank', make: 'Hanse 345', lengthMetres: 10.4, keelType: 'Fin', berth: 'Pontoon D, berth 9' },
-  { owner: 15, name: 'Curlew', make: 'Nicholson 32', lengthMetres: 9.8, keelType: 'Long', berth: 'Ashore, yard row 1' },
-  { owner: 16, name: 'Shearwater', make: 'Southerly 110', lengthMetres: 11.2, keelType: 'Lifting', berth: 'Pontoon B, berth 4' },
-  { owner: 17, name: 'Sea Urchin', make: 'Cobra 850', lengthMetres: 8.5, keelType: 'Fin', berth: 'Swinging mooring 6' },
-  // Second boats.
-  { owner: 0, name: 'Little Auk', make: 'Drascombe Lugger', lengthMetres: 5.7, keelType: 'Lifting', berth: 'Dinghy park 22' },
-  { owner: 10, name: 'Gadwall', make: 'Nordhavn 40', lengthMetres: 12.2, keelType: null, berth: 'Pontoon E, berth 3' },
-];
-
-/** All @example.com, so a stray send with no DEMO_EMAIL_REDIRECT still cannot reach anyone. */
-function emailFor(name: string): string {
-  return `${name.toLowerCase().replace(/[^a-z ]/g, '').split(' ').join('.')}@example.com`;
-}
-
-type SessionSpec = { key: string; offset: number; time: string; service: ServiceSlug; notes?: string };
-
-const SESSIONS: SessionSpec[] = [
-  // ---- Past. Gaps at -9, -6, -4 and -2 so the day view has believable empty days.
-  { key: 'p10a', offset: -10, time: '08:30', service: SERVICE.liftout, notes: 'HW Lymington 09:10' },
-  { key: 'p10b', offset: -10, time: '13:00', service: SERVICE.survey },
-  { key: 'p8a', offset: -8, time: '09:00', service: SERVICE.rig },
-  { key: 'p8b', offset: -8, time: '14:00', service: SERVICE.liftout, notes: 'HW Lymington 14:40' },
-  { key: 'p7a', offset: -7, time: '08:00', service: SERVICE.shipwright },
-  { key: 'p5a', offset: -5, time: '09:30', service: SERVICE.liftout, notes: 'HW Lymington 10:05' },
-  { key: 'cancelled', offset: -5, time: '13:30', service: SERVICE.liftin, notes: 'HW Lymington 14:15' },
-  { key: 'p5c', offset: -5, time: '15:00', service: SERVICE.rig },
-  { key: 'p3a', offset: -3, time: '09:00', service: SERVICE.survey },
-  { key: 'p3b', offset: -3, time: '14:30', service: SERVICE.liftout, notes: 'HW Lymington 15:20' },
-  { key: 'p1a', offset: -1, time: '08:30', service: SERVICE.liftin, notes: 'HW Lymington 09:00' },
-  { key: 'p1b', offset: -1, time: '13:00', service: SERVICE.rig },
-
-  // ---- Today. t0a is the one marked off in front of the prospect.
-  { key: 't0a', offset: 0, time: '08:30', service: SERVICE.liftout, notes: 'HW Lymington 09:15' },
-  { key: 't0b', offset: 0, time: '11:00', service: SERVICE.survey },
-  { key: 't0c', offset: 0, time: '15:00', service: SERVICE.rig },
-
-  // ---- Future. +1 is deliberately un-reminded so "Send reminders now" does something.
-  { key: 'f1a', offset: 1, time: '08:00', service: SERVICE.liftout, notes: 'HW Lymington 08:35' },
-  { key: 'f1b', offset: 1, time: '13:00', service: SERVICE.shipwright },
-  { key: 'f2a', offset: 2, time: '09:30', service: SERVICE.rig },
-  { key: 'f3a', offset: 3, time: '10:00', service: SERVICE.survey }, // capacity 2, 1 taken -> "1 space left"
-  { key: 'f4a', offset: 4, time: '08:30', service: SERVICE.liftout, notes: 'HW Lymington 09:05' }, // empty
-  { key: 'f5a', offset: 5, time: '08:00', service: SERVICE.shipwright }, // holds a live quote
-  { key: 'f6a', offset: 6, time: '13:30', service: SERVICE.liftin, notes: 'HW Lymington 14:00' }, // rebook target
-  { key: 'f7a', offset: 7, time: '09:00', service: SERVICE.rig },
-  // Free lift-in slots, so the owners left waiting by the cancellation above
-  // actually have somewhere to rebook to. Without these the rebook picker
-  // correctly, and very undemonstratively, says "no suitable dates".
-  { key: 'f8a', offset: 8, time: '09:00', service: SERVICE.liftin, notes: 'HW Lymington 09:40' },
-  { key: 'f9a', offset: 9, time: '08:30', service: SERVICE.liftout, notes: 'HW Lymington 09:20' }, // live hold
-  { key: 'f10a', offset: 10, time: '14:00', service: SERVICE.liftin, notes: 'HW Lymington 14:35' },
-  { key: 'f11a', offset: 11, time: '10:00', service: SERVICE.survey },
-];
-
-type BookingSpec = {
-  /** Omit for an unscheduled job: an enquiry the yard has not put in the diary yet. */
-  session?: string;
-  vessel: number;
-  status: string;
-  /** The agreed or offered price, in whole pounds. Omit while still an enquiry. */
-  quotedPounds?: number;
-  /** Itemised breakdown. Where present, these must sum to quotedPounds. */
-  lines?: { description: string; quantity?: string; amount: number }[];
-  requestNotes?: string;
-  quoteNotes?: string;
-  expiresInMinutes?: number;
-  rebookedFrom?: string;
-};
-
-const BOOKINGS: BookingSpec[] = [
-  // ---- Past work, done and invoiced.
-  { session: 'p10a', vessel: 0, status: 'completed', quotedPounds: 280 },
-  { session: 'p10b', vessel: 2, status: 'completed', quotedPounds: 650 },
-  { session: 'p8a', vessel: 3, status: 'completed', quotedPounds: 340 },
-  { session: 'p8a', vessel: 4, status: 'completed', quotedPounds: 340 },
-  { session: 'p8b', vessel: 5, status: 'completed', quotedPounds: 295 },
-  { session: 'p7a', vessel: 6, status: 'completed', quotedPounds: 1450 },
-  // The boat that was not ready when the crane turned up.
-  { session: 'p5a', vessel: 7, status: 'no_show', quotedPounds: 310 },
-  { session: 'p5c', vessel: 8, status: 'completed', quotedPounds: 340 },
-  { session: 'p5c', vessel: 9, status: 'completed', quotedPounds: 320 },
-  { session: 'p3a', vessel: 10, status: 'completed', quotedPounds: 780 },
-  { session: 'p3b', vessel: 11, status: 'completed', quotedPounds: 285 },
-  { session: 'p1a', vessel: 12, status: 'completed', quotedPounds: 260 },
-  { session: 'p1b', vessel: 13, status: 'completed', quotedPounds: 350 },
-  // A deposit that was never paid; the hold lapsed and the slot went back out.
-  { session: 'p5a', vessel: 14, status: 'expired', quotedPounds: 290 },
-
-  // ---- The cancelled lift-in. Two still waiting, one already moved to f6a below.
-  { session: 'cancelled', vessel: 15, status: 'awaiting_rebook', quotedPounds: 275 },
-  { session: 'cancelled', vessel: 16, status: 'awaiting_rebook', quotedPounds: 300 },
-
-  // ---- Today. Booked in, nothing marked off yet: this is the live demo moment.
-  { session: 't0a', vessel: 1, status: 'paid', quotedPounds: 285 },
-  { session: 't0b', vessel: 17, status: 'paid', quotedPounds: 690 },
-  { session: 't0b', vessel: 18, status: 'paid', quotedPounds: 420 },
-  { session: 't0c', vessel: 19, status: 'paid', quotedPounds: 360 },
-
-  // ---- Tomorrow. reminderSentAt stays null: the reminder button needs work to do.
-  { session: 'f1a', vessel: 2, status: 'paid', quotedPounds: 295 },
-  { session: 'f1b', vessel: 3, status: 'paid', quotedPounds: 1680 },
-  { session: 'f2a', vessel: 4, status: 'paid', quotedPounds: 340 },
-
-  // ---- f3a is a survey day with room for two; one taken -> "1 space left".
-  { session: 'f3a', vessel: 5, status: 'paid', quotedPounds: 720 },
-
-  // ---- f4a deliberately has no bookings at all.
-
-  // ---- f6a: a lift-in takes one boat, and that one is the job already moved
-  // off the cancelled slot. Adding a second here would overbook it.
-  { session: 'f6a', vessel: 15, status: 'paid', quotedPounds: 275, rebookedFrom: 'cancelled' },
-
-  { session: 'f7a', vessel: 8, status: 'paid', quotedPounds: 340 },
-  { session: 'f11a', vessel: 9, status: 'paid', quotedPounds: 660 },
-
-  // ---- f9a: a deposit request 20 minutes from lapsing. Holds the slot until it does.
-  { session: 'f9a', vessel: 10, status: 'pending_payment', quotedPounds: 320, expiresInMinutes: 20 },
-
-  // ---- The yard's inbox: work requested, not yet priced. No slot, no deposit.
-  {
-    vessel: 12,
-    status: 'enquiry',
-    requestNotes:
-      'Rudder feels stiff on the helm since we dried out. Could you take a look next time she is ashore?',
-  },
-  {
-    vessel: 13,
-    status: 'enquiry',
-    requestNotes: 'Due a lift and scrub before the winter. Any tide that suits you before the end of the month.',
-  },
-  {
-    vessel: 17,
-    status: 'enquiry',
-    requestNotes: 'Buying her subject to survey — need a full pre-purchase done in the next fortnight if you can.',
-  },
-
-  // ---- Quotes out, waiting on the customer. These carry a live accept link.
-  // A quote always names a slot: the price and the date go out together, and
-  // accepting one with no date would have nothing to compute a deposit from.
-  // The slot is NOT held by the quote -- see occupiedPlaceWhere.
-  {
-    session: 'f5a',
-    vessel: 11,
-    status: 'quoted',
-    quotedPounds: 1240,
-    requestNotes: 'Soft patch in the deck around the forehatch, want it made good properly.',
-    quoteNotes: 'Cut out and relaminate approx 0.5m², fair and gelcoat to match. Excludes any core replacement beyond 0.5m², which we would come back to you on.',
-    lines: [
-      { description: 'Cut out and relaminate soft area', quantity: '0.5m²', amount: 640 },
-      { description: 'Fair, gelcoat and colour match', amount: 310 },
-      { description: 'Shipwright labour', quantity: '18h', amount: 234 },
-      { description: 'Consumables', amount: 56 },
-    ],
-  },
-  {
-    session: 'f7a',
-    vessel: 14,
-    status: 'quoted',
-    quotedPounds: 385,
-    requestNotes: 'Standing rigging is 11 years old. Inspection and a written report for insurance.',
-    quoteNotes: 'Full rig inspection aloft, swage and terminal check, written report for underwriters. Does not include any replacement wire.',
-    lines: [
-      { description: 'Rig inspection aloft', quantity: '1 rig', amount: 240 },
-      { description: 'Swage and terminal check', quantity: '12 terminals', amount: 96 },
-      { description: 'Written report for underwriters', amount: 49 },
-    ],
-  },
-
-  // ---- One that went the other way, so the pipeline is not unrealistically clean.
-  {
-    vessel: 19,
-    status: 'declined',
-    quotedPounds: 2100,
-    requestNotes: 'Osmosis treatment quote please.',
-    quoteNotes: 'Peel, dry, epoxy schedule and antifoul. Six to eight weeks ashore.',
-    lines: [
-      { description: 'Peel and dry hull', quantity: '12.2m', amount: 1180 },
-      { description: 'Epoxy schedule, five coats', amount: 620 },
-      { description: 'Antifoul and relaunch', amount: 300 },
-    ],
-  },
+/**
+ * 25 boats: 1970s-2000s production yachts typical of the harbour, plus two
+ * motor boats. `owner` indexes CUSTOMERS; three owners deliberately have two
+ * boats, because the boat file has to cope with it.
+ *
+ * `rigYears` / `engineMonths` position the equipment ages that make reminders
+ * fire. At least four boats carry standing rigging 10+ years old and five
+ * engines are past their service interval -- §8 requires both.
+ */
+const VESSELS: {
+  key: string;
+  owner: number;
+  name: string;
+  make: string;
+  model: string;
+  year: number;
+  loa: number;
+  keel: string;
+  place: PlaceKey;
+  rigYears?: number;
+  engineMonths?: number;
+  engineMake?: string;
+}[] = [
+  { key: 'kittiwake', owner: 0, name: 'Kittiwake', make: 'Westerly', model: 'Konsort', year: 1981, loa: 8.8, keel: 'Bilge', place: 'pontoon', rigYears: 13, engineMonths: 16, engineMake: 'Volvo Penta MD2020' },
+  { key: 'morningtide', owner: 1, name: 'Morning Tide', make: 'Sadler', model: '32', year: 1985, loa: 9.7, keel: 'Fin', place: 'hard', rigYears: 7, engineMonths: 5, engineMake: 'Yanmar 2GM20' },
+  { key: 'bramble', owner: 2, name: 'Bramble', make: 'Contessa', model: '32', year: 1979, loa: 9.8, keel: 'Long', place: 'bosham', rigYears: 11, engineMonths: 22, engineMake: 'Beta Marine 20' },
+  { key: 'osprey', owner: 3, name: 'Osprey', make: 'Moody', model: '36', year: 1990, loa: 10.9, keel: 'Fin', place: 'pontoon', rigYears: 6, engineMonths: 9, engineMake: 'Volvo Penta MD22' },
+  { key: 'halcyon', owner: 4, name: 'Halcyon', make: 'Hunter', model: 'Legend 306', year: 1992, loa: 9.2, keel: 'Twin lifting', place: 'hard', rigYears: 12, engineMonths: 19, engineMake: 'Yanmar 2GM20F' },
+  { key: 'seaurchin', owner: 5, name: 'Sea Urchin', make: 'Beneteau', model: 'Oceanis 350', year: 1993, loa: 10.4, keel: 'Fin', place: 'itchenor', rigYears: 9, engineMonths: 3, engineMake: 'Volvo Penta 2003' },
+  { key: 'wildgoose', owner: 6, name: 'Wild Goose', make: 'Jeanneau', model: 'Sun Odyssey 32', year: 1998, loa: 9.9, keel: 'Fin', place: 'pontoon', rigYears: 4, engineMonths: 7, engineMake: 'Yanmar 2GM20F' },
+  { key: 'tamarisk', owner: 7, name: 'Tamarisk', make: 'Dehler', model: '34', year: 1996, loa: 10.2, keel: 'Fin', place: 'hayling', rigYears: 14, engineMonths: 11, engineMake: 'Volvo Penta MD2030' },
+  { key: 'curlew', owner: 8, name: 'Curlew', make: 'Westerly', model: 'Griffon', year: 1983, loa: 8.0, keel: 'Bilge', place: 'bosham', rigYears: 8, engineMonths: 26, engineMake: 'Bukh DV20' },
+  { key: 'saltwind', owner: 9, name: 'Saltwind', make: 'Moody', model: '31', year: 1987, loa: 9.4, keel: 'Fin', place: 'hard', rigYears: 10, engineMonths: 4, engineMake: 'Yanmar 3GM30' },
+  { key: 'marlin', owner: 10, name: 'Marlin', make: 'Sadler', model: '29', year: 1982, loa: 8.8, keel: 'Bilge', place: 'pontoon', rigYears: 5, engineMonths: 14, engineMake: 'Volvo Penta MD7A' },
+  { key: 'pipit', owner: 11, name: 'Pipit', make: 'Contessa', model: '26', year: 1975, loa: 7.9, keel: 'Long', place: 'itchenor', rigYears: 16, engineMonths: 2, engineMake: 'Yanmar 1GM10' },
+  { key: 'greylag', owner: 12, name: 'Greylag', make: 'Hunter', model: 'Channel 31', year: 1989, loa: 9.4, keel: 'Fin', place: 'pontoon', rigYears: 3, engineMonths: 6, engineMake: 'Volvo Penta 2002' },
+  { key: 'sirocco', owner: 13, name: 'Sirocco', make: 'Beneteau', model: 'First 285', year: 1988, loa: 8.6, keel: 'Fin', place: 'hard', rigYears: 9, engineMonths: 21, engineMake: 'Volvo Penta MD2010' },
+  { key: 'petrel', owner: 14, name: 'Petrel', make: 'Jeanneau', model: 'Sun Fizz', year: 1981, loa: 11.6, keel: 'Fin', place: 'pontoon', rigYears: 15, engineMonths: 8, engineMake: 'Perkins 4108' },
+  { key: 'skua', owner: 15, name: 'Skua', make: 'Westerly', model: 'Fulmar', year: 1986, loa: 9.8, keel: 'Fin', place: 'bosham', rigYears: 2, engineMonths: 13, engineMake: 'Volvo Penta 2003' },
+  { key: 'lodestar', owner: 16, name: 'Lodestar', make: 'Moody', model: '346', year: 1991, loa: 10.5, keel: 'Fin', place: 'pontoon', rigYears: 7, engineMonths: 1, engineMake: 'Yanmar 3GM30F' },
+  { key: 'thistle', owner: 17, name: 'Thistle', make: 'Sadler', model: '34', year: 1988, loa: 10.4, keel: 'Fin', place: 'hayling', rigYears: 6, engineMonths: 17, engineMake: 'Volvo Penta MD22' },
+  { key: 'gannet', owner: 18, name: 'Gannet', make: 'Dehler', model: '31', year: 1994, loa: 9.4, keel: 'Fin', place: 'hard', rigYears: 11, engineMonths: 10, engineMake: 'Yanmar 2GM20F' },
+  { key: 'whimbrel', owner: 19, name: 'Whimbrel', make: 'Hunter', model: 'Horizon 272', year: 1995, loa: 8.3, keel: 'Bilge', place: 'itchenor', rigYears: 5, engineMonths: 23, engineMake: 'Volvo Penta MD2010' },
+  // Owners with a second boat.
+  { key: 'redshank', owner: 0, name: 'Redshank', make: 'Westerly', model: 'Centaur', year: 1977, loa: 7.9, keel: 'Bilge', place: 'bosham', rigYears: 18, engineMonths: 12, engineMake: 'Volvo Penta MD2B' },
+  { key: 'ternagain', owner: 4, name: 'Tern Again', make: 'Contessa', model: '28', year: 1984, loa: 8.5, keel: 'Fin', place: 'hard', rigYears: 4, engineMonths: 15, engineMake: 'Yanmar 2GM' },
+  { key: 'bosunsbird', owner: 5, name: "Bosun's Bird", make: 'Beneteau', model: 'Oceanis 311', year: 2001, loa: 9.5, keel: 'Fin', place: 'pontoon', rigYears: 8, engineMonths: 5, engineMake: 'Volvo Penta 2020' },
+  // Two motor boats: no rig at all, so nothing may assume a mast.
+  { key: 'jolyroger', owner: 9, name: 'Joly Roger', make: 'Fairline', model: 'Targa 34', year: 1999, loa: 10.4, keel: 'Planing', place: 'pontoon', engineMonths: 18, engineMake: 'Volvo Penta KAD42' },
+  { key: 'harbourpilot', owner: 13, name: 'Harbour Pilot', make: 'Orkney', model: 'Fastliner 19', year: 2004, loa: 5.8, keel: 'Planing', place: 'hard', engineMonths: 20, engineMake: 'Mariner 60' },
 ];
 
 async function clear() {
   // FK-safe order: children before parents.
   await prisma.emailLog.deleteMany();
   await prisma.stripeEvent.deleteMany();
-  await prisma.sessionCancellation.deleteMany();
+  await prisma.invoiceLine.deleteMany();
+  await prisma.invoice.deleteMany();
+  await prisma.reminder.deleteMany();
+  await prisma.visit.deleteMany();
+  await prisma.partOrder.deleteMany();
+  await prisma.variation.deleteMany();
+  await prisma.estimate.deleteMany();
   await prisma.quoteLineItem.deleteMany();
+  await prisma.sessionCancellation.deleteMany();
   await prisma.booking.deleteMany();
+  await prisma.equipment.deleteMany();
+  await prisma.vesselMove.deleteMany();
   await prisma.vessel.deleteMany();
   await prisma.session.deleteMany();
   await prisma.sessionType.deleteMany();
   await prisma.customer.deleteMany();
+  await prisma.place.deleteMany();
   await prisma.operator.deleteMany();
   await prisma.contactMessage.deleteMany();
 }
@@ -271,303 +153,635 @@ async function clear() {
 async function main() {
   await clear();
 
-  const today = todayInLondon();
-  const now = new Date();
+  // -------------------------------------------------------------------------
+  // The business
+  // -------------------------------------------------------------------------
 
-  const operator = await prisma.operator.create({
+  const op = await prisma.operator.create({
     data: {
-      name: 'Harbourside Marine',
-      slug: 'harbourside-marine',
-      timezone: 'Europe/London',
-      currency: 'GBP',
-      contactEmail: 'yard@harboursidemarine.example.com',
-      phone: '01590 000000',
+      name: 'Harbourside Marine Services',
+      slug: 'harbourside-marine-services',
+      ownerName: 'Dave Pascoe',
+      contactEmail: 'dave@example.com',
+      phone: '07700 900001',
+      tradeTypes: 'rigging,engineering',
+      // Under the threshold, so the word VAT must not appear anywhere in the
+      // app while this is false. Flip it to exercise the other path.
+      vatRegistered: false,
+      defaultLabourRatePence: LABOUR,
+      invoicePrefix: 'HMS-',
+      nextInvoiceNumber: 4, // three invoices are seeded below
+      paymentTermsDays: 14,
+      bankDetailsText: 'Harbourside Marine Services · Sort 00-00-00 · Acct 00000000',
     },
   });
 
-  const serviceDefs = [
-    {
-      slug: SERVICE.liftout,
-      name: 'Liftout & pressure wash',
-      description:
-        'Crane out, pressure wash off and chock ashore. Priced on length and keel configuration.',
-      durationMinutes: 90,
-      defaultCapacity: 1,
-      tideDependent: true,
-      sortOrder: 0,
-    },
-    {
-      slug: SERVICE.liftin,
-      name: 'Lift-in & rig check',
-      description: 'Back in the water, mast stepped and rig tuned, engine run and checked.',
-      durationMinutes: 90,
-      defaultCapacity: 1,
-      tideDependent: true,
-      sortOrder: 1,
-    },
-    {
-      slug: SERVICE.survey,
-      name: 'Pre-purchase survey',
-      description:
-        'Full structural and systems survey with a written report, suitable for insurance and finance.',
-      durationMinutes: 240,
-      defaultCapacity: 2,
-      tideDependent: false,
-      sortOrder: 2,
-    },
-    {
-      slug: SERVICE.rig,
-      name: 'Rig inspection',
-      description: 'Inspection aloft, swage and terminal check, written report for underwriters.',
-      durationMinutes: 120,
-      defaultCapacity: 2,
-      tideDependent: false,
-      sortOrder: 3,
-    },
-    {
-      slug: SERVICE.shipwright,
-      name: 'Shipwright & hull repair',
-      description: 'Laminate, timber and gelcoat work. Quoted after we have seen the damage.',
-      durationMinutes: 480,
-      defaultCapacity: 1,
-      tideDependent: false,
-      sortOrder: 4,
-    },
-  ];
-
-  const servicesBySlug = new Map<string, Awaited<ReturnType<typeof prisma.sessionType.create>>>();
-  for (const s of serviceDefs) {
-    servicesBySlug.set(
-      s.slug,
-      await prisma.sessionType.create({
-        data: { ...s, operatorId: operator.id, depositPercent: 50, active: true },
-      }),
-    );
-  }
-
-  const customers = [];
-  for (const c of CUSTOMERS) {
-    customers.push(
-      await prisma.customer.create({
-        data: {
-          operatorId: operator.id,
-          name: c.name,
-          email: emailFor(c.name), // lowercased on write; never queried case-insensitively
-          phone: c.phone,
-        },
-      }),
-    );
-  }
-
-  const vessels = [];
-  for (const v of VESSELS) {
-    vessels.push(
-      await prisma.vessel.create({
-        data: {
-          operatorId: operator.id,
-          customerId: customers[v.owner].id,
-          name: v.name,
-          make: v.make,
-          lengthMetres: v.lengthMetres,
-          keelType: v.keelType,
-          berth: v.berth,
-        },
-      }),
-    );
-  }
-
-  const sessionsByKey = new Map<string, Awaited<ReturnType<typeof prisma.session.create>>>();
-  for (const spec of SESSIONS) {
-    const service = servicesBySlug.get(spec.service)!;
-    const startsAt = londonDateTimeToUtc(addDays(today, spec.offset), spec.time);
-
-    sessionsByKey.set(
-      spec.key,
-      await prisma.session.create({
-        data: {
-          operatorId: operator.id,
-          sessionTypeId: service.id,
-          startsAt,
-          endsAt: new Date(startsAt.getTime() + service.durationMinutes * 60_000),
-          // Snapshotted from the service default, then independently editable.
-          capacity: service.defaultCapacity,
-          notes: spec.notes,
-          status: spec.key === 'cancelled' ? 'cancelled' : 'scheduled',
-        },
-      }),
-    );
-  }
-
-  const cancelledSession = sessionsByKey.get('cancelled')!;
-
-  await prisma.sessionCancellation.create({
-    data: {
-      sessionId: cancelledSession.id,
-      reason: 'weather',
-      note: 'Force 6 gusting 7 in the Solent — crane not safe to work',
-      cancelledBy: 'admin',
-    },
-  });
-
-  const notified: { bookingId: string; customerId: string; email: string }[] = [];
-  let liveQuoteToken: string | null = null;
-
-  for (const spec of BOOKINGS) {
-    const session = spec.session ? sessionsByKey.get(spec.session)! : null;
-    const vessel = vessels[spec.vessel];
-    const customerId = vessel.customerId;
-
-    const sessionSpec = spec.session ? SESSIONS.find((s) => s.key === spec.session)! : null;
-    const service = sessionSpec ? servicesBySlug.get(sessionSpec.service)! : null;
-
-    const quoted = spec.quotedPounds != null ? spec.quotedPounds * 100 : null;
-    // A deposit exists only once the customer has accepted; see money.ts.
-    const accepted = ['pending_payment', 'paid', 'completed', 'no_show', 'awaiting_rebook', 'expired'].includes(
-      spec.status,
-    );
-    const deposit =
-      accepted && quoted != null ? depositPence(quoted, service?.depositPercent ?? 50) : null;
-
-    const settled = ['paid', 'completed', 'no_show', 'awaiting_rebook'].includes(spec.status);
-    const isPast = session ? session.startsAt < now : false;
-
-    const quoteToken = spec.status === 'quoted' ? generateRebookToken() : null;
-    if (quoteToken && !liveQuoteToken) liveQuoteToken = quoteToken;
-
-    const booking = await prisma.booking.create({
+  const places: Record<string, string> = {};
+  for (const [i, pl] of PLACES.entries()) {
+    const row = await prisma.place.create({
       data: {
-        reference: generateBookingReference(),
-        operatorId: operator.id,
-        sessionId: session?.id ?? null,
-        customerId,
-        vesselId: vessel.id,
-
-        requestNotes: spec.requestNotes,
-        quotedPence: quoted,
-        quotedAt: quoted != null ? new Date(now.getTime() - 3 * 86_400_000) : null,
-        quoteNotes: spec.quoteNotes,
-        acceptedAt: accepted ? new Date(now.getTime() - 2 * 86_400_000) : null,
-        depositPence: deposit,
-
-        status: spec.status,
-        expiresAt:
-          spec.expiresInMinutes != null
-            ? new Date(now.getTime() + spec.expiresInMinutes * 60_000)
-            : null,
-        paidAt: settled ? new Date(now.getTime() - 86_400_000) : null,
-        stripePaymentIntentId: settled ? `pi_seed_${generateRebookToken().slice(0, 18)}` : null,
-
-        completedAt: spec.status === 'completed' && session ? session.endsAt : null,
-        attendanceMarkedAt:
-          (spec.status === 'completed' || spec.status === 'no_show') && session ? session.endsAt : null,
-
-        rebookToken: spec.status === 'awaiting_rebook' ? generateRebookToken() : null,
-        rebookedFromSessionId: spec.rebookedFrom ? cancelledSession.id : null,
-        rebookedAt: spec.rebookedFrom
-          ? new Date(cancelledSession.startsAt.getTime() + 3_600_000)
-          : null,
-        quoteToken,
-
-        // Past jobs were reminded the evening before. Tomorrow's deliberately were not.
-        reminderSentAt:
-          isPast && settled && session ? new Date(session.startsAt.getTime() - 57_600_000) : null,
-
-        lineItems: spec.lines
-          ? {
-              create: spec.lines.map((line, i) => ({
-                description: line.description,
-                quantity: line.quantity ?? null,
-                amountPence: line.amount * 100,
-                sortOrder: i,
-              })),
-            }
-          : undefined,
+        operatorId: op.id,
+        name: pl.name,
+        shortName: pl.shortName,
+        kind: pl.kind,
+        notes: pl.notes,
+        sortOrder: i,
       },
     });
+    places[pl.key] = row.id;
+  }
 
-    // The stored total must equal the lines, or the quote screen and the
-    // deposit disagree with each other.
-    if (spec.lines) {
-      const sum = spec.lines.reduce((t, l) => t + l.amount, 0);
-      if (sum !== spec.quotedPounds) {
-        throw new Error(
-          `Seed: ${vessel.name} lines total £${sum} but quotedPounds is £${spec.quotedPounds}.`,
-        );
-      }
+  // -------------------------------------------------------------------------
+  // Owners and boats
+  // -------------------------------------------------------------------------
+
+  const emailFor = (name: string) => `${name.toLowerCase().replace(/[^a-z]+/g, '.')}@example.com`;
+
+  const customers: string[] = [];
+  for (const c of CUSTOMERS) {
+    const row = await prisma.customer.create({
+      data: {
+        operatorId: op.id,
+        name: c.name,
+        email: emailFor(c.name),
+        phone: c.phone,
+      },
+    });
+    customers.push(row.id);
+  }
+
+  const vessels: Record<string, string> = {};
+  const rigEquipment: Record<string, string> = {};
+  const engineEquipment: Record<string, string> = {};
+
+  for (const v of VESSELS) {
+    const row = await prisma.vessel.create({
+      data: {
+        operatorId: op.id,
+        customerId: customers[v.owner],
+        name: v.name,
+        make: v.make,
+        model: v.model,
+        year: v.year,
+        lengthMetres: v.loa,
+        keelType: v.keel,
+        currentPlaceId: places[v.place],
+      },
+    });
+    vessels[v.key] = row.id;
+
+    if (v.rigYears != null) {
+      const rig = await prisma.equipment.create({
+        data: {
+          vesselId: row.id,
+          kind: 'standing_rigging',
+          make: '1x19 stainless, swaged',
+          installedOn: addYears(TODAY, -v.rigYears),
+          notes: v.rigYears >= 10 ? 'Insurer asked about age at last renewal.' : null,
+        },
+      });
+      rigEquipment[v.key] = rig.id;
     }
 
-    if (spec.status === 'awaiting_rebook' || spec.rebookedFrom) {
-      notified.push({
-        bookingId: booking.id,
-        customerId,
-        email: customers.find((c) => c.id === customerId)!.email,
+    if (v.engineMonths != null) {
+      const engine = await prisma.equipment.create({
+        data: {
+          vesselId: row.id,
+          kind: v.key === 'harbourpilot' ? 'outboard' : 'engine',
+          make: v.engineMake ?? null,
+          // Annual service is the norm on these, so anything past 12 months is
+          // due and anything past ~18 is the conversation that sells a job.
+          serviceIntervalMonths: 12,
+          lastServicedOn: addMonths(TODAY, -v.engineMonths),
+          hours: 900 + v.engineMonths * 17,
+          hoursRecordedOn: addMonths(TODAY, -v.engineMonths),
+        },
+      });
+      engineEquipment[v.key] = engine.id;
+    }
+  }
+
+  // A boat that came off the mooring onto the hard, so the boat file has a
+  // move to show and "where has this been" is a real question.
+  await prisma.vesselMove.create({
+    data: {
+      vesselId: vessels.halcyon,
+      movedOn: addDays(TODAY, -34),
+      fromName: 'Bosham mooring',
+      toName: 'Harbour yard (hard standing)',
+      note: 'Lifted for the pre-purchase survey list.',
+    },
+  });
+
+  // -------------------------------------------------------------------------
+  // The board
+  // -------------------------------------------------------------------------
+
+  let seq = 0;
+  async function job(input: {
+    vessel?: string;
+    column: string;
+    title: string;
+    place?: PlaceKey;
+    waitingReason?: string;
+    waitingUntil?: string;
+    plannedOn?: string;
+    requestNotes?: string;
+    daysInColumn?: number;
+    quotedPence?: number;
+    acceptedDaysAgo?: number;
+  }) {
+    seq += 1;
+    const v = input.vessel ? VESSELS.find((x) => x.key === input.vessel) : undefined;
+    return prisma.booking.create({
+      data: {
+        reference: generateBookingReference('HMS'),
+        operatorId: op.id,
+        vesselId: input.vessel ? vessels[input.vessel] : null,
+        customerId: v ? customers[v.owner] : null,
+        notes: input.title,
+        requestNotes: input.requestNotes ?? null,
+        column: input.column,
+        waitingReason: input.waitingReason ?? null,
+        waitingUntil: input.waitingUntil ?? null,
+        plannedOn: input.plannedOn ?? null,
+        placeId: input.place ? places[input.place] : v ? places[v.place] : null,
+        position: seq * 100,
+        columnChangedAt: londonDateTimeToUtc(addDays(TODAY, -(input.daysInColumn ?? 1)), '09:00'),
+        quotedPence: input.quotedPence ?? null,
+        quotedAt: input.quotedPence ? londonDateTimeToUtc(addDays(TODAY, -6), '17:00') : null,
+        acceptedAt:
+          input.acceptedDaysAgo != null
+            ? londonDateTimeToUtc(addDays(TODAY, -input.acceptedDaysAgo), '18:30')
+            : null,
+        // The parked yard lifecycle. Nothing on the board reads this; it is set
+        // coherently so the flag-on screens are not nonsense.
+        status:
+          input.column === 'paid'
+            ? 'paid'
+            : input.column === 'invoiced' || input.column === 'done_to_invoice'
+              ? 'completed'
+              : 'enquiry',
+      },
+    });
+  }
+
+  // --- Jotted: raw capture. No boat, no owner, no place. This is the product.
+  await job({
+    column: 'jotted',
+    title: 'Westerly at Bosham — furler',
+    requestNotes: 'Westerly at Bosham, owner wants furler looked at. Fenwick? the blue one',
+    daysInColumn: 0,
+  });
+  await job({
+    column: 'jotted',
+    title: 'Mast step corrosion — call back',
+    requestNotes:
+      'Voicemail from a bloke at Itchenor, mast step looked green, wants someone to look before he lays up. Number on the other phone',
+    daysInColumn: 2,
+  });
+
+  // --- Enquiry
+  await job({ vessel: 'wildgoose', column: 'enquiry', title: 'Annual engine service', requestNotes: 'Due its service, and the alternator belt squeals on start-up.', daysInColumn: 3 });
+  await job({ vessel: 'skua', column: 'enquiry', title: 'Replace running rigging — halyards and sheets', daysInColumn: 1 });
+
+  // --- Estimate sent
+  const estGannet = await job({ vessel: 'gannet', column: 'estimate_sent', title: 'Standing rigging replacement', quotedPence: p(4180), daysInColumn: 4 });
+  const estThistle = await job({ vessel: 'thistle', column: 'estimate_sent', title: 'Seacock replacement, 4 off', quotedPence: p(690), daysInColumn: 2 });
+
+  // --- Booked
+  const bookedSalt = await job({ vessel: 'saltwind', column: 'booked', title: 'Engine service + impeller', plannedOn: addDays(TODAY, 3), quotedPence: p(340), acceptedDaysAgo: 2, daysInColumn: 2 });
+  await job({ vessel: 'lodestar', column: 'booked', title: 'Rig check and tune before lay-up', plannedOn: addDays(TODAY, 6), quotedPence: p(220), acceptedDaysAgo: 1, daysInColumn: 1 });
+
+  // --- Waiting: one card per reason, and one PAST its date so it flashes.
+  const waitCrane = await job({
+    vessel: 'halcyon', column: 'waiting', title: 'Cutless bearing + shaft seal',
+    waitingReason: 'crane', waitingUntil: addDays(TODAY, -2), daysInColumn: 9,
+    requestNotes: 'Needs lifting again to get the shaft out. Crane was booked, then moved.',
+  });
+  const waitParts = await job({
+    vessel: 'bramble', column: 'waiting', title: 'Alternator not charging',
+    waitingReason: 'parts', waitingUntil: addDays(TODAY, 4), daysInColumn: 5,
+  });
+  await job({ vessel: 'tamarisk', column: 'waiting', title: 'Rudder bearing play — estimate sent, owner deciding', waitingReason: 'owner_decision', waitingUntil: addDays(TODAY, 2), daysInColumn: 6, quotedPence: p(980) });
+  await job({ vessel: 'sirocco', column: 'waiting', title: 'Antifoul and anodes', waitingReason: 'yard_lift', waitingUntil: addDays(TODAY, 8), daysInColumn: 3 });
+  await job({ vessel: 'petrel', column: 'waiting', title: 'Topsides polish', waitingReason: 'weather', waitingUntil: addDays(TODAY, 1), daysInColumn: 4 });
+  await job({ vessel: 'pipit', column: 'waiting', title: 'Log impeller — needs the tide to get alongside', waitingReason: 'tide', waitingUntil: addDays(TODAY, 2), daysInColumn: 2, place: 'itchenor' });
+  await job({ vessel: 'whimbrel', column: 'waiting', title: 'Gas locker drain — owner has the keys', waitingReason: 'access', waitingUntil: addDays(TODAY, 5), daysInColumn: 7 });
+  await job({ vessel: 'redshank', column: 'waiting', title: 'Chase the surveyor for the report', waitingReason: 'other', waitingUntil: addDays(TODAY, 3), daysInColumn: 2 });
+
+  // --- On it
+  const onItHalcyon = await job({ vessel: 'halcyon', column: 'on_it', title: 'Keel bolts — drop, inspect, replace', quotedPence: p(2450), acceptedDaysAgo: 12, daysInColumn: 5 });
+  await job({ vessel: 'seaurchin', column: 'on_it', title: 'Furler service — bench strip', place: 'workshop', quotedPence: p(430), acceptedDaysAgo: 4, daysInColumn: 2 });
+
+  // --- Done, to invoice
+  const doneMorning = await job({ vessel: 'morningtide', column: 'done_to_invoice', title: 'Rig inspection + bottlescrew replacement', quotedPence: p(615), acceptedDaysAgo: 16, daysInColumn: 2 });
+
+  // --- Invoiced
+  const invKittiwake = await job({ vessel: 'kittiwake', column: 'invoiced', title: 'Engine service + gearbox linkage', quotedPence: p(486), acceptedDaysAgo: 24, daysInColumn: 5 });
+  const invMarlin = await job({ vessel: 'marlin', column: 'invoiced', title: 'Replace forestay and furling line', quotedPence: p(1240), acceptedDaysAgo: 40, daysInColumn: 19 });
+
+  // --- The rest of the Halcyon survey list, spread across the board. One boat
+  // fills a board, which is exactly the point §8 is making.
+  await job({ vessel: 'halcyon', column: 'enquiry', title: 'Keel hydraulic rams and pump — both rams weeping', daysInColumn: 4 });
+  await job({ vessel: 'halcyon', column: 'estimate_sent', title: 'Rig inspection ahead of insurance renewal', quotedPence: p(180), daysInColumn: 3 });
+
+  // --- Off the board: paid, lives in the boat's history.
+  const paidCurlew = await job({ vessel: 'curlew', column: 'paid', title: 'Winterisation and antifreeze', quotedPence: p(295), acceptedDaysAgo: 48, daysInColumn: 26 });
+
+  // -------------------------------------------------------------------------
+  // Lines. The working list the trade ticks off; an Invoice snapshots them.
+  // -------------------------------------------------------------------------
+
+  async function lines(
+    bookingId: string,
+    rows: { kind: string; description: string; qty: number; unit: number; done?: boolean }[],
+  ) {
+    for (const [i, r] of rows.entries()) {
+      await prisma.quoteLineItem.create({
+        data: {
+          bookingId,
+          kind: r.kind,
+          description: r.description,
+          qty: r.qty,
+          unitPricePence: r.unit,
+          // The one place a line total is computed. Stored, never re-derived.
+          amountPence: Math.round(r.qty * r.unit),
+          done: r.done ?? false,
+          sortOrder: i,
+        },
       });
     }
   }
 
-  // The evidence trail behind "3 customers notified". Written directly, never sent:
-  // sessionId is the CANCELLED slot even for the customer who has since moved,
-  // because that is the slot they were notified about.
-  for (const n of notified) {
-    await prisma.emailLog.create({
+  await lines(estGannet.id, [
+    { kind: 'parts', description: 'Wire, terminals and turnbuckles — full set, 1x19', qty: 1, unit: p(2380) },
+    { kind: 'labour', description: 'Unstep, measure, re-rig and tune', qty: 28, unit: LABOUR },
+    { kind: 'subcontract', description: 'Yard crane — unstep and step', qty: 1, unit: p(260) },
+  ]);
+  await lines(estThistle.id, [
+    { kind: 'parts', description: 'Bronze seacocks, 4 off', qty: 4, unit: p(78) },
+    { kind: 'labour', description: 'Remove, re-bed and refit', qty: 6, unit: LABOUR },
+  ]);
+  await lines(onItHalcyon.id, [
+    { kind: 'labour', description: 'Drop keel, inspect bolts, clean pocket', qty: 18, unit: LABOUR, done: true },
+    { kind: 'parts', description: 'Keel bolts and backing plates', qty: 1, unit: p(880), done: true },
+    { kind: 'labour', description: 'Re-bed and torque, refit', qty: 12, unit: LABOUR },
+    { kind: 'subcontract', description: 'Crane hire — lift and hold', qty: 1, unit: p(310), done: true },
+  ]);
+  await lines(doneMorning.id, [
+    { kind: 'labour', description: 'Full rig inspection, aloft', qty: 5, unit: LABOUR, done: true },
+    { kind: 'parts', description: 'Bottlescrews, 2 off', qty: 2, unit: p(84), done: true },
+    { kind: 'labour', description: 'Replace and tune', qty: 3, unit: LABOUR, done: true },
+  ]);
+  await lines(invKittiwake.id, [
+    { kind: 'labour', description: 'Annual engine service', qty: 4, unit: LABOUR, done: true },
+    { kind: 'parts', description: 'Filters, impeller, oil', qty: 1, unit: p(146), done: true },
+    { kind: 'labour', description: 'Gearbox linkage adjustment', qty: 2, unit: LABOUR, done: true },
+  ]);
+  await lines(invMarlin.id, [
+    { kind: 'parts', description: 'Forestay, 1x19 with swage', qty: 1, unit: p(410), done: true },
+    { kind: 'parts', description: 'Furling line and blocks', qty: 1, unit: p(165), done: true },
+    { kind: 'labour', description: 'Replacement aloft, no unstep', qty: 12, unit: LABOUR, done: true },
+  ]);
+  await lines(paidCurlew.id, [
+    { kind: 'labour', description: 'Winterise engine and freshwater system', qty: 3, unit: LABOUR, done: true },
+    { kind: 'parts', description: 'Antifreeze and inhibitor', qty: 1, unit: p(130), done: true },
+  ]);
+  await lines(bookedSalt.id, [
+    { kind: 'labour', description: 'Engine service', qty: 4, unit: LABOUR },
+    { kind: 'parts', description: 'Impeller and filters', qty: 1, unit: p(120) },
+  ]);
+
+  // -------------------------------------------------------------------------
+  // Estimates: two out and unanswered, one accepted by link, one by phone.
+  // -------------------------------------------------------------------------
+
+  await prisma.estimate.create({
+    data: {
+      bookingId: estGannet.id,
+      status: 'sent',
+      totalPence: p(4180),
+      notes: 'Assumes the mast comes down on a yard crane day. Time and materials beyond that.',
+      sentAt: londonDateTimeToUtc(addDays(TODAY, -4), '16:20'),
+      token: generateRebookToken(),
+    },
+  });
+  await prisma.estimate.create({
+    data: {
+      bookingId: estThistle.id,
+      status: 'sent',
+      totalPence: p(690),
+      sentAt: londonDateTimeToUtc(addDays(TODAY, -2), '11:05'),
+      token: generateRebookToken(),
+    },
+  });
+  await prisma.estimate.create({
+    data: {
+      bookingId: bookedSalt.id,
+      status: 'accepted',
+      totalPence: p(340),
+      sentAt: londonDateTimeToUtc(addDays(TODAY, -3), '09:40'),
+      decidedAt: londonDateTimeToUtc(addDays(TODAY, -2), '18:30'),
+      decidedVia: 'link',
+    },
+  });
+  await prisma.estimate.create({
+    data: {
+      bookingId: onItHalcyon.id,
+      status: 'accepted',
+      totalPence: p(2450),
+      sentAt: londonDateTimeToUtc(addDays(TODAY, -14), '15:00'),
+      decidedAt: londonDateTimeToUtc(addDays(TODAY, -12), '08:15'),
+      decidedVia: 'phone',
+      decisionNote: 'Rang back first thing — go ahead, wants it done before the weather turns.',
+    },
+  });
+
+  // -------------------------------------------------------------------------
+  // Variations. §8: one awaiting the owner, one approved by link, one agreed
+  // by phone. The unanswered one puts a dot on the board card.
+  // -------------------------------------------------------------------------
+
+  await prisma.variation.create({
+    data: {
+      bookingId: onItHalcyon.id,
+      description: 'Galley seacock seized — replace while the boat is open',
+      reason: 'Found corroded solid when the keel came out. Not safe to leave another season.',
+      estimatePence: p(140),
+      status: 'awaiting_owner',
+      token: generateRebookToken(),
+      createdAt: londonDateTimeToUtc(addDays(TODAY, -1), '14:10'),
+    },
+  });
+  await prisma.variation.create({
+    data: {
+      bookingId: onItHalcyon.id,
+      description: 'Rudder bearing shows play — shim and re-seat',
+      reason: 'Picked up on the same lift. Cheaper now than a separate haul-out.',
+      estimatePence: p(260),
+      status: 'approved',
+      decidedVia: 'link',
+      decidedAt: londonDateTimeToUtc(addDays(TODAY, -3), '20:05'),
+      createdAt: londonDateTimeToUtc(addDays(TODAY, -4), '10:00'),
+    },
+  });
+  await prisma.variation.create({
+    data: {
+      bookingId: doneMorning.id,
+      description: 'Second bottlescrew cracked — replaced the pair',
+      reason: 'Would not have lasted the winter.',
+      estimatePence: p(84),
+      status: 'approved',
+      decidedVia: 'phone',
+      decisionNote: 'Agreed on the phone from the masthead. Said just do it.',
+      decidedAt: londonDateTimeToUtc(addDays(TODAY, -15), '11:30'),
+      createdAt: londonDateTimeToUtc(addDays(TODAY, -15), '11:20'),
+    },
+  });
+
+  // -------------------------------------------------------------------------
+  // Parts on order, and visits. The Waiting column has to be about something.
+  // -------------------------------------------------------------------------
+
+  await prisma.partOrder.create({
+    data: {
+      bookingId: waitParts.id,
+      item: 'Alternator, 12V 80A',
+      supplier: 'ASAP Supplies',
+      orderedOn: addDays(TODAY, -5),
+      etaOn: addDays(TODAY, 4),
+      costPence: p(318),
+    },
+  });
+  await prisma.partOrder.create({
+    data: {
+      bookingId: waitParts.id,
+      item: 'Drive belt',
+      supplier: 'ASAP Supplies',
+      orderedOn: addDays(TODAY, -5),
+      etaOn: addDays(TODAY, -1),
+      arrivedOn: addDays(TODAY, -1),
+      costPence: p(14),
+    },
+  });
+  await prisma.partOrder.create({
+    data: {
+      bookingId: waitCrane.id,
+      item: 'Cutless bearing 25mm, dripless seal kit',
+      supplier: 'Marine Engineering Supplies',
+      orderedOn: addDays(TODAY, -12),
+      etaOn: addDays(TODAY, -6),
+      arrivedOn: addDays(TODAY, -6),
+      costPence: p(196),
+    },
+  });
+
+  await prisma.visit.create({
+    data: {
+      bookingId: bookedSalt.id,
+      placeId: places.hard,
+      startsAt: londonDateTimeToUtc(addDays(TODAY, 3), '09:00'),
+      endsAt: londonDateTimeToUtc(addDays(TODAY, 3), '13:00'),
+      status: 'planned',
+    },
+  });
+  // The postponed one. §8: weather, owner notified.
+  await prisma.visit.create({
+    data: {
+      bookingId: waitCrane.id,
+      placeId: places.hard,
+      startsAt: londonDateTimeToUtc(addDays(TODAY, -2), '08:00'),
+      endsAt: londonDateTimeToUtc(addDays(TODAY, -2), '16:00'),
+      status: 'postponed',
+      postponeReason: 'weather',
+      postponeNote: 'Forecast 30kt gusting 40 across the yard — the crane will not lift in that.',
+    },
+  });
+
+  // -------------------------------------------------------------------------
+  // Invoices: one paid, one sent 5 days ago, one 19 days overdue.
+  // -------------------------------------------------------------------------
+
+  async function invoice(input: {
+    bookingId: string;
+    number: string;
+    issuedDaysAgo: number;
+    totalPence: number;
+    status: string;
+    paidDaysAgo?: number;
+    paidVia?: string;
+    rows: { description: string; qty: number; unit: number }[];
+  }) {
+    const issuedOn = addDays(TODAY, -input.issuedDaysAgo);
+    const inv = await prisma.invoice.create({
       data: {
-        type: 'cancellation',
-        toEmail: n.email,
-        deliveredTo: process.env.DEMO_EMAIL_REDIRECT?.trim() || n.email,
-        subject: 'Cancelled: Lift-in & rig check',
-        status: 'sent',
-        providerId: 'local-dev',
-        bookingId: n.bookingId,
-        sessionId: cancelledSession.id,
-        customerId: n.customerId,
+        operatorId: op.id,
+        bookingId: input.bookingId,
+        number: input.number,
+        issuedOn,
+        dueOn: addDays(issuedOn, 14),
+        totalPence: input.totalPence,
+        status: input.status,
+        paidOn: input.paidDaysAgo != null ? addDays(TODAY, -input.paidDaysAgo) : null,
+        paidVia: input.paidVia ?? null,
+        token: generateRebookToken(),
+      },
+    });
+    for (const [i, r] of input.rows.entries()) {
+      await prisma.invoiceLine.create({
+        data: {
+          invoiceId: inv.id,
+          description: r.description,
+          qty: r.qty,
+          unitPricePence: r.unit,
+          amountPence: Math.round(r.qty * r.unit),
+          sortOrder: i,
+        },
+      });
+    }
+    return inv;
+  }
+
+  await invoice({
+    bookingId: paidCurlew.id,
+    number: 'HMS-0001',
+    issuedDaysAgo: 30,
+    totalPence: p(295),
+    status: 'paid',
+    paidDaysAgo: 22,
+    paidVia: 'bank',
+    rows: [
+      { description: 'Winterise engine and freshwater system', qty: 3, unit: LABOUR },
+      { description: 'Antifreeze and inhibitor', qty: 1, unit: p(130) },
+    ],
+  });
+  await invoice({
+    bookingId: invKittiwake.id,
+    number: 'HMS-0002',
+    issuedDaysAgo: 5,
+    totalPence: p(486),
+    status: 'sent',
+    rows: [
+      { description: 'Annual engine service', qty: 4, unit: LABOUR },
+      { description: 'Filters, impeller, oil', qty: 1, unit: p(146) },
+      { description: 'Gearbox linkage adjustment', qty: 2, unit: LABOUR },
+    ],
+  });
+  // 33 days out on 14-day terms = 19 days overdue.
+  await invoice({
+    bookingId: invMarlin.id,
+    number: 'HMS-0003',
+    issuedDaysAgo: 33,
+    totalPence: p(1240),
+    status: 'sent',
+    rows: [
+      { description: 'Forestay, 1x19 with swage', qty: 1, unit: p(410) },
+      { description: 'Furling line and blocks', qty: 1, unit: p(165) },
+      { description: 'Replacement aloft, no unstep', qty: 12, unit: LABOUR },
+    ],
+  });
+
+  // -------------------------------------------------------------------------
+  // Reminders due this month — the sales pitch. §8 wants at least eight.
+  // -------------------------------------------------------------------------
+
+  const dueThisMonth = [
+    { v: 'redshank', kind: 'rig_age', msg: 'Standing rigging is 18 years old. Most insurers want it replaced or professionally inspected somewhere around 10-15 years.' },
+    { v: 'pipit', kind: 'rig_age', msg: 'Standing rigging is 16 years old — worth an inspection before renewal.' },
+    { v: 'petrel', kind: 'rig_age', msg: 'Standing rigging is 15 years old.' },
+    { v: 'tamarisk', kind: 'rig_age', msg: 'Standing rigging is 14 years old.' },
+    { v: 'kittiwake', kind: 'rig_age', msg: 'Standing rigging is 13 years old.' },
+    { v: 'curlew', kind: 'service_due', msg: 'Engine service is 26 months overdue.' },
+    { v: 'whimbrel', kind: 'service_due', msg: 'Engine service is 23 months overdue.' },
+    { v: 'bramble', kind: 'service_due', msg: 'Engine service is 22 months overdue.' },
+    { v: 'sirocco', kind: 'service_due', msg: 'Engine service is 21 months overdue.' },
+    { v: 'harbourpilot', kind: 'service_due', msg: 'Outboard service is 20 months overdue.' },
+  ];
+
+  for (const [i, r] of dueThisMonth.entries()) {
+    await prisma.reminder.create({
+      data: {
+        vesselId: vessels[r.v],
+        equipmentId: r.kind === 'rig_age' ? rigEquipment[r.v] : engineEquipment[r.v],
+        kind: r.kind,
+        // Spread across the coming fortnight so "due this month" is a real list.
+        dueOn: addDays(TODAY, i - 2),
+        status: 'upcoming',
+        message: r.msg,
       },
     });
   }
 
-  await prisma.contactMessage.createMany({
-    data: [
-      {
-        name: 'Rachel Dunne',
-        email: 'rachel@example.com',
-        business: 'Dunne Marine Engineering',
-        message:
-          'We run engine servicing out of Hamble and the diary is still a paper book. Can you do callout slots rather than fixed ones?',
-      },
-      {
-        name: 'Ian Prosser',
-        email: 'ian@example.com',
-        business: 'Solent Rigging',
-        message: 'Interested in the £40/month. How long does setup take if we want it live before the winter lift season?',
-      },
-    ],
+  // One already sent, so the screen is not all one state.
+  await prisma.reminder.create({
+    data: {
+      vesselId: vessels.greylag,
+      kind: 'winterise',
+      dueOn: addDays(TODAY, -6),
+      status: 'sent',
+      sentAt: londonDateTimeToUtc(addDays(TODAY, -6), '07:00'),
+      message: 'Winterisation — worth booking before the first hard frost.',
+      token: generateRebookToken(),
+    },
   });
 
-  const rebookable = await prisma.booking.findFirst({
-    where: { status: 'awaiting_rebook', rebookToken: { not: null } },
-    select: { rebookToken: true },
-  });
-  const counts = {
-    sessions: await prisma.session.count(),
-    bookings: await prisma.booking.count(),
-    vessels: await prisma.vessel.count(),
-    enquiries: await prisma.booking.count({ where: { status: 'enquiry' } }),
-    quoted: await prisma.booking.count({ where: { status: 'quoted' } }),
-  };
+  // -------------------------------------------------------------------------
+  // EmailLog. Written directly: these are the evidence behind every "N owners
+  // notified" count on screen, and this script must never actually send.
+  // -------------------------------------------------------------------------
 
-  console.log(
-    [
-      '',
-      `Seeded ${counts.sessions} slots, ${counts.bookings} jobs, ${counts.vessels} vessels.`,
-      `Today in London is ${today}.`,
-      `Inbox: ${counts.enquiries} awaiting a quote, ${counts.quoted} quotes out.`,
-      `Cancelled slot: ${notified.length} customers notified.`,
-      rebookable?.rebookToken ? `Rebook link:  /rebook/${rebookable.rebookToken}` : '',
-      liveQuoteToken ? `Quote link:   /quote/${liveQuoteToken}` : '',
-      '',
-    ]
-      .filter(Boolean)
-      .join('\n'),
-  );
+  async function logged(input: {
+    type: string;
+    vesselKey: string;
+    bookingId?: string;
+    subject: string;
+    daysAgo: number;
+  }) {
+    const v = VESSELS.find((x) => x.key === input.vesselKey)!;
+    const email = emailFor(CUSTOMERS[v.owner].name);
+    await prisma.emailLog.create({
+      data: {
+        type: input.type,
+        toEmail: email,
+        deliveredTo: email,
+        subject: input.subject,
+        status: 'sent',
+        providerId: 'local-dev',
+        bookingId: input.bookingId ?? null,
+        customerId: customers[v.owner],
+        vesselId: vessels[input.vesselKey],
+        createdAt: londonDateTimeToUtc(addDays(TODAY, -input.daysAgo), '08:30'),
+      },
+    });
+  }
+
+  await logged({ type: 'estimate', vesselKey: 'gannet', bookingId: estGannet.id, subject: 'Your estimate for Gannet — £4,180.00', daysAgo: 4 });
+  await logged({ type: 'estimate', vesselKey: 'thistle', bookingId: estThistle.id, subject: 'Your estimate for Thistle — £690.00', daysAgo: 2 });
+  await logged({ type: 'variation', vesselKey: 'halcyon', bookingId: onItHalcyon.id, subject: 'Halcyon — extra work found: galley seacock', daysAgo: 1 });
+  await logged({ type: 'visit_postponed', vesselKey: 'halcyon', bookingId: waitCrane.id, subject: 'Halcyon — Thursday postponed, weather', daysAgo: 2 });
+  await logged({ type: 'invoice', vesselKey: 'kittiwake', bookingId: invKittiwake.id, subject: 'Invoice HMS-0002 — Kittiwake', daysAgo: 5 });
+  await logged({ type: 'invoice', vesselKey: 'marlin', bookingId: invMarlin.id, subject: 'Invoice HMS-0003 — Marlin', daysAgo: 33 });
+  await logged({ type: 'invoice_reminder', vesselKey: 'marlin', bookingId: invMarlin.id, subject: 'Invoice HMS-0003 is overdue', daysAgo: 12 });
+  await logged({ type: 'service_reminder', vesselKey: 'greylag', subject: 'Greylag — worth booking winterisation?', daysAgo: 6 });
+
+  await prisma.contactMessage.create({
+    data: {
+      name: 'Nick Arundel',
+      email: 'nick.arundel@example.com',
+      business: 'Arundel Marine Electrical',
+      message: 'Saw this at the boat show. I am one man and a van — do I need the whole thing?',
+    },
+  });
+
+  console.log('Seeded Harbourside Marine Services:', {
+    places: PLACES.length,
+    boats: VESSELS.length,
+    jobs: await prisma.booking.count(),
+    onBoard: await prisma.booking.count({ where: { column: { not: 'paid' } } }),
+    remindersDue: await prisma.reminder.count({ where: { status: 'upcoming' } }),
+    invoices: await prisma.invoice.count(),
+  });
 }
 
 main()

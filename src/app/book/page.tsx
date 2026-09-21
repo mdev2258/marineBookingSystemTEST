@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { PublicShell } from '@/components/public-shell';
 import { placesTakenBySession, spacesLeftFrom } from '@/lib/availability';
 import { formatDateShort, formatTimeRange } from '@/lib/time';
+import { yardOnly } from '@/lib/features';
 
 // Without this a prospect is shown a cached "3 spaces left" after the last seat
 // has gone.
@@ -12,6 +13,7 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Yard diary — Harbourside Marine' };
 
 export default async function BookPage(props: PageProps<'/book'>) {
+  yardOnly();
   const params = await props.searchParams;
   const type = typeof params.type === 'string' ? params.type : '';
 
