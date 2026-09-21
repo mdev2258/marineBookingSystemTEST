@@ -234,6 +234,12 @@ model Booking {
   customerId String?
   vesselId   String?
 
+  /// The one line that appears on the card. For a card created by Jot this is
+  /// DERIVED from the captured text, never typed -- a jot has one text box and
+  /// no other fields, so the app makes the title and the trade never sees it
+  /// asked for.
+  title String @default("")
+
   /// What the owner said they wanted, in their words -- or, for a card created
   /// by Jot, the raw captured text, kept verbatim forever after it is sorted.
   requestNotes String?

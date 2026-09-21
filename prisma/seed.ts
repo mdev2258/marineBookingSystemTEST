@@ -299,7 +299,7 @@ async function main() {
         operatorId: op.id,
         vesselId: input.vessel ? vessels[input.vessel] : null,
         customerId: v ? customers[v.owner] : null,
-        notes: input.title,
+        title: input.title,
         requestNotes: input.requestNotes ?? null,
         column: input.column,
         waitingReason: input.waitingReason ?? null,

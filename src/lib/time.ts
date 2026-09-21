@@ -136,3 +136,18 @@ export function monthsBetween(from: LondonDate, to: LondonDate): number {
 export function londonMonth(date: LondonDate): number {
   return Number(date.split('-')[1]);
 }
+
+/** "Thu 16 Oct", from a bare LondonDate rather than an instant. */
+export function formatLondonDateShort(date: LondonDate): string {
+  return formatInTimeZone(londonDayBounds(date).start, LONDON, 'EEE d MMM');
+}
+
+/**
+ * Whole days between two London dates. Negative when `to` is earlier.
+ * Used for "in Waiting for 9 days" and "19 days outstanding".
+ */
+export function daysBetween(from: LondonDate, to: LondonDate): number {
+  return Math.round(
+    (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000,
+  );
+}

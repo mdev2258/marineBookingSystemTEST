@@ -8,10 +8,8 @@ export const dynamic = 'force-dynamic';
 
 /**
  * The board is the first screen after login, on every device
- * (ANALYSIS-TRADES.md §4). Until F1 builds it, the inbox is the only live
- * admin screen: the yard diary this used to point at is parked behind
- * FEATURE_YARD and would 404.
+ * (ANALYSIS-TRADES.md §4).
  */
 export default async function AdminIndex() {
-  redirect('/admin/enquiries');
+  redirect('/admin/board');
 }

@@ -175,3 +175,24 @@ textarea {
 .muted {
   color: color-mix(in srgb, var(--color-ink) 58%, transparent);
 }
+
+/* ── Overdue card ────────────────────────────────────────────────────────
+   A waiting card whose date has passed flashes, so nothing rots in the
+   Waiting column. Slow and low-contrast on purpose: this is a nag on a
+   working screen, not an alarm, and forty of them at once must still be
+   readable. */
+@keyframes flash {
+  0%, 100% { border-color: var(--color-accent-700); }
+  50%      { border-color: color-mix(in srgb, var(--color-accent-700) 25%, transparent); }
+}
+
+.flash {
+  border-color: var(--color-accent-700);
+  animation: flash 1.8s ease-in-out infinite;
+}
+
+/* Someone who has asked the OS for less motion still needs to see which card
+   is overdue -- so the colour stays and only the animation goes. */
+@media (prefers-reduced-motion: reduce) {
+  .flash { animation: none; }
+}
