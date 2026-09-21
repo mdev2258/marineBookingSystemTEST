@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { prisma } from '@/lib/prisma';
 import { PublicShell } from '@/components/public-shell';
 import { QuoteAccept } from '@/components/quote-accept';
+import { Plate } from '@/components/ui/plate';
 import { depositPence, formatPence } from '@/lib/money';
 import { formatDateLong, formatTimeRange } from '@/lib/time';
 
@@ -9,6 +10,7 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Your quote — Harbourside Marine' };
 
+/** Direction 2b-C. The estimate plate is the screen; everything else frames it. */
 export default async function QuotePage(props: PageProps<'/quote/[token]'>) {
   const { token } = await props.params;
 
@@ -17,6 +19,7 @@ export default async function QuotePage(props: PageProps<'/quote/[token]'>) {
     include: {
       customer: true,
       vessel: true,
+      lineItems: { orderBy: { sortOrder: 'asc' } },
       session: { include: { sessionType: true } },
     },
   });
@@ -26,8 +29,8 @@ export default async function QuotePage(props: PageProps<'/quote/[token]'>) {
   if (!booking || booking.quotedPence == null || !booking.session) {
     return (
       <PublicShell width="narrow">
-        <h1 className="text-2xl font-semibold tracking-tight">This quote has been answered</h1>
-        <p className="mt-3 text-neutral-700">
+        <h1 className="text-3xl">This quote has been answered</h1>
+        <p className="muted mt-3">
           If you have already accepted it, check your inbox for the confirmation. Otherwise give us
           a ring on 01590 000000 and we will send it again.
         </p>
@@ -36,55 +39,87 @@ export default async function QuotePage(props: PageProps<'/quote/[token]'>) {
   }
 
   // Shown, not stored. The figure is computed for real when they accept.
-  const deposit = depositPence(
-    booking.quotedPence,
-    booking.session.sessionType.depositPercent,
-  );
+  const deposit = depositPence(booking.quotedPence, booking.session.sessionType.depositPercent);
   const balance = Math.max(0, booking.quotedPence - deposit);
 
   return (
     <PublicShell width="narrow">
-      <p className="text-sm text-neutral-600">Quote for</p>
-      <h1 className="text-2xl font-semibold tracking-tight">{booking.vessel.name}</h1>
-      <p className="mt-1 text-neutral-700">
+      <p className="k text-accent-700">
+        {booking.vessel.name} · Quote {booking.reference}
+      </p>
+      <h1 className="mt-1.5 text-[28px]">{booking.session.sessionType.name}</h1>
+      <p className="muted mt-1.5 text-[13px]">
         {[booking.vessel.make, booking.vessel.lengthMetres ? `${booking.vessel.lengthMetres}m` : null]
           .filter(Boolean)
           .join(' · ')}
       </p>
 
-      <div className="mt-6 rounded-lg border border-divider p-5">
-        <p className="font-semibold">{booking.session.sessionType.name}</p>
-        <p className="mt-0.5 text-neutral-700">
-          {formatDateLong(booking.session.startsAt)} ·{' '}
+      {/* When she is booked in for. The yard picks the tide; the owner accepts it. */}
+      <Plate className="mt-6 p-3.5">
+        <p className="k text-accent-700">The slot we are holding for you</p>
+        <p className="mt-2 font-condensed text-[21px] leading-none">
+          {formatDateLong(booking.session.startsAt)}
+        </p>
+        <p className="muted mt-1.5 text-[13px]">
           {formatTimeRange(booking.session.startsAt, booking.session.endsAt)}
+          {booking.session.notes ? ` · ${booking.session.notes}` : ''}
         </p>
-        {booking.session.notes && (
-          <p className="mt-0.5 font-medium text-brand-700">{booking.session.notes}</p>
-        )}
+      </Plate>
 
-        <hr className="my-4 border-divider" />
+      <Plate className="mt-3.5 p-3.5">
+        <p className="k text-accent-700">Estimate</p>
 
-        <p className="text-4xl font-semibold tracking-tight">
-          {formatPence(booking.quotedPence)}
-        </p>
-        <p className="mt-2 text-neutral-700">
-          {formatPence(deposit)} deposit to book her in · {formatPence(balance)} on completion
-        </p>
+        <div className="mt-3 space-y-[7px]">
+          {booking.lineItems.length > 0 ? (
+            booking.lineItems.map((line) => (
+              <div key={line.id} className="flex items-baseline gap-2 text-[13.5px]">
+                <span className="flex-1 pr-2.5">{line.description}</span>
+                <span className="muted w-14 shrink-0 text-[12.5px]">{line.quantity ?? '—'}</span>
+                <span className="shrink-0 font-semibold">{formatPence(line.amountPence)}</span>
+              </div>
+            ))
+          ) : (
+            <p className="muted text-[13.5px]">{booking.session.sessionType.name}</p>
+          )}
+        </div>
 
-        {booking.quoteNotes && (
-          <>
-            <hr className="my-4 border-divider" />
-            <p className="text-sm text-neutral-600">What that covers</p>
-            <p className="mt-1 whitespace-pre-wrap text-neutral-800">{booking.quoteNotes}</p>
-          </>
-        )}
+        <div className="mt-3 border-t border-divider pt-3">
+          <div className="flex items-baseline justify-between">
+            <span className="font-condensed text-[18px] font-semibold">Total</span>
+            <span className="numeric text-[22px]">{formatPence(booking.quotedPence)}</span>
+          </div>
+          <p className="muted mt-2 text-[12px]">
+            {booking.session.sessionType.depositPercent}% deposit to book her in, balance on
+            completion. Work is scheduled once the deposit clears.
+          </p>
+        </div>
+      </Plate>
+
+      {booking.quoteNotes && (
+        <Plate className="mt-3.5 p-3.5">
+          <p className="k text-accent-700">What that covers</p>
+          <p className="mt-2 whitespace-pre-wrap text-[13.5px] leading-[1.55]">
+            {booking.quoteNotes}
+          </p>
+        </Plate>
+      )}
+
+      <div className="mt-6 grid grid-cols-2 gap-2 text-center">
+        <Plate className="p-2.5">
+          <p className="k muted">Deposit now</p>
+          <p className="numeric mt-1.5 text-[20px]">{formatPence(deposit)}</p>
+        </Plate>
+        <Plate className="p-2.5">
+          <p className="k muted">On completion</p>
+          <p className="numeric mt-1.5 text-[20px]">{formatPence(balance)}</p>
+        </Plate>
       </div>
 
       <div className="mt-6">
         <QuoteAccept token={token} depositLabel={formatPence(deposit)} />
       </div>
 
-      <p className="mt-4 text-sm text-neutral-600">
+      <p className="muted mt-4 text-[12px]">
         The date above isn&rsquo;t held until you accept — if someone else takes it first we will
         find you another.
       </p>

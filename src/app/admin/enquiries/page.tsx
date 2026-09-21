@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { prisma } from '@/lib/prisma';
 import { AdminShell } from '@/components/admin/shell';
-import { QuoteForm, type SlotOption } from '@/components/admin/quote-form';
+import { QuoteForm, type SlotOption, type LineDraft } from '@/components/admin/quote-form';
 import { sendQuote } from '@/app/admin/enquiries/actions';
 import { placesTakenBySession, spacesLeftFrom } from '@/lib/availability';
 import { penceToPoundsInput, formatPence } from '@/lib/money';
@@ -26,6 +26,7 @@ export default async function EnquiriesPage() {
     include: {
       customer: true,
       vessel: true,
+      lineItems: { orderBy: { sortOrder: 'asc' } },
       session: { include: { sessionType: true } },
     },
   });
@@ -134,7 +135,11 @@ export default async function EnquiriesPage() {
                 <QuoteForm
                   action={sendQuote.bind(null, job.id)}
                   slots={relevant}
-                  currentPrice={job.quotedPence != null ? penceToPoundsInput(job.quotedPence) : ''}
+                  initialLines={job.lineItems.map<LineDraft>((line) => ({
+                    description: line.description,
+                    quantity: line.quantity ?? '',
+                    amount: penceToPoundsInput(line.amountPence),
+                  }))}
                   currentNotes={job.quoteNotes ?? ''}
                   currentSessionId={job.sessionId ?? ''}
                   alreadyQuoted={job.status === 'quoted'}

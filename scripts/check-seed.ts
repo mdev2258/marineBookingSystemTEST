@@ -118,6 +118,27 @@ async function main() {
     await prisma.booking.count({ where: { status: 'quoted', depositPence: { not: null } } }),
     0,
   );
+  // Accepting a quote computes the deposit from the service behind the slot,
+  // so a quote with no slot is one the customer cannot accept at all.
+  check(
+    'every quote names a slot the customer can accept',
+    await prisma.booking.count({ where: { status: 'quoted', sessionId: null } }),
+    0,
+  );
+  check(
+    'quotes are itemised, and the lines sum to the stored total',
+    (
+      await prisma.booking.findMany({
+        where: { status: 'quoted' },
+        include: { lineItems: true },
+      })
+    ).every(
+      (b) =>
+        b.lineItems.length > 0 &&
+        b.lineItems.reduce((t, l) => t + l.amountPence, 0) === b.quotedPence,
+    ),
+    true,
+  );
 
   // Every job is a job on a boat. A yard talks about the vessel first.
   const jobs = await prisma.booking.count();

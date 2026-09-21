@@ -112,6 +112,7 @@ const SESSIONS: SessionSpec[] = [
   { key: 'f2a', offset: 2, time: '09:30', service: SERVICE.rig },
   { key: 'f3a', offset: 3, time: '10:00', service: SERVICE.survey }, // capacity 2, 1 taken -> "1 space left"
   { key: 'f4a', offset: 4, time: '08:30', service: SERVICE.liftout, notes: 'HW Lymington 09:05' }, // empty
+  { key: 'f5a', offset: 5, time: '08:00', service: SERVICE.shipwright }, // holds a live quote
   { key: 'f6a', offset: 6, time: '13:30', service: SERVICE.liftin, notes: 'HW Lymington 14:00' }, // rebook target
   { key: 'f7a', offset: 7, time: '09:00', service: SERVICE.rig },
   // Free lift-in slots, so the owners left waiting by the cancellation above
@@ -130,6 +131,8 @@ type BookingSpec = {
   status: string;
   /** The agreed or offered price, in whole pounds. Omit while still an enquiry. */
   quotedPounds?: number;
+  /** Itemised breakdown. Where present, these must sum to quotedPounds. */
+  lines?: { description: string; quantity?: string; amount: number }[];
   requestNotes?: string;
   quoteNotes?: string;
   expiresInMinutes?: number;
@@ -204,19 +207,35 @@ const BOOKINGS: BookingSpec[] = [
   },
 
   // ---- Quotes out, waiting on the customer. These carry a live accept link.
+  // A quote always names a slot: the price and the date go out together, and
+  // accepting one with no date would have nothing to compute a deposit from.
+  // The slot is NOT held by the quote -- see occupiedPlaceWhere.
   {
+    session: 'f5a',
     vessel: 11,
     status: 'quoted',
     quotedPounds: 1240,
     requestNotes: 'Soft patch in the deck around the forehatch, want it made good properly.',
     quoteNotes: 'Cut out and relaminate approx 0.5m², fair and gelcoat to match. Excludes any core replacement beyond 0.5m², which we would come back to you on.',
+    lines: [
+      { description: 'Cut out and relaminate soft area', quantity: '0.5m²', amount: 640 },
+      { description: 'Fair, gelcoat and colour match', amount: 310 },
+      { description: 'Shipwright labour', quantity: '18h', amount: 234 },
+      { description: 'Consumables', amount: 56 },
+    ],
   },
   {
+    session: 'f7a',
     vessel: 14,
     status: 'quoted',
     quotedPounds: 385,
     requestNotes: 'Standing rigging is 11 years old. Inspection and a written report for insurance.',
     quoteNotes: 'Full rig inspection aloft, swage and terminal check, written report for underwriters. Does not include any replacement wire.',
+    lines: [
+      { description: 'Rig inspection aloft', quantity: '1 rig', amount: 240 },
+      { description: 'Swage and terminal check', quantity: '12 terminals', amount: 96 },
+      { description: 'Written report for underwriters', amount: 49 },
+    ],
   },
 
   // ---- One that went the other way, so the pipeline is not unrealistically clean.
@@ -226,6 +245,11 @@ const BOOKINGS: BookingSpec[] = [
     quotedPounds: 2100,
     requestNotes: 'Osmosis treatment quote please.',
     quoteNotes: 'Peel, dry, epoxy schedule and antifoul. Six to eight weeks ashore.',
+    lines: [
+      { description: 'Peel and dry hull', quantity: '12.2m', amount: 1180 },
+      { description: 'Epoxy schedule, five coats', amount: 620 },
+      { description: 'Antifoul and relaunch', amount: 300 },
+    ],
   },
 ];
 
@@ -234,6 +258,7 @@ async function clear() {
   await prisma.emailLog.deleteMany();
   await prisma.stripeEvent.deleteMany();
   await prisma.sessionCancellation.deleteMany();
+  await prisma.quoteLineItem.deleteMany();
   await prisma.booking.deleteMany();
   await prisma.vessel.deleteMany();
   await prisma.session.deleteMany();
@@ -446,8 +471,30 @@ async function main() {
         // Past jobs were reminded the evening before. Tomorrow's deliberately were not.
         reminderSentAt:
           isPast && settled && session ? new Date(session.startsAt.getTime() - 57_600_000) : null,
+
+        lineItems: spec.lines
+          ? {
+              create: spec.lines.map((line, i) => ({
+                description: line.description,
+                quantity: line.quantity ?? null,
+                amountPence: line.amount * 100,
+                sortOrder: i,
+              })),
+            }
+          : undefined,
       },
     });
+
+    // The stored total must equal the lines, or the quote screen and the
+    // deposit disagree with each other.
+    if (spec.lines) {
+      const sum = spec.lines.reduce((t, l) => t + l.amount, 0);
+      if (sum !== spec.quotedPounds) {
+        throw new Error(
+          `Seed: ${vessel.name} lines total £${sum} but quotedPounds is £${spec.quotedPounds}.`,
+        );
+      }
+    }
 
     if (spec.status === 'awaiting_rebook' || spec.rebookedFrom) {
       notified.push({

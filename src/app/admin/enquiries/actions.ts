@@ -11,8 +11,38 @@ import { sendQuoteEmail } from '@/lib/notifications';
 export type QuoteState = {
   error?: string;
   ok?: boolean;
-  errors?: Partial<Record<'price' | 'sessionId', string>>;
+  errors?: Partial<Record<'lines' | 'sessionId', string>>;
 };
+
+type ParsedLine = { description: string; quantity: string | null; amountPence: number };
+
+/**
+ * Lines arrive as three parallel repeated fields rather than indexed names,
+ * so adding and removing rows in the form needs no renumbering. Rows the yard
+ * left entirely blank are dropped; a row with text but no usable amount is an
+ * error, because silently discarding a priced line would understate the quote.
+ */
+function parseLines(formData: FormData): { lines: ParsedLine[] } | { error: string } {
+  const descriptions = formData.getAll('lineDescription').map((v) => String(v).trim());
+  const quantities = formData.getAll('lineQuantity').map((v) => String(v).trim());
+  const amounts = formData.getAll('lineAmount').map((v) => String(v).trim());
+
+  const lines: ParsedLine[] = [];
+  for (let i = 0; i < descriptions.length; i++) {
+    const description = descriptions[i];
+    const amountRaw = amounts[i] ?? '';
+    if (!description && !amountRaw) continue;
+
+    const amountPence = poundsToPence(amountRaw);
+    if (!description) return { error: 'Every priced line needs a description.' };
+    if (amountPence === null) return { error: `"${description}" needs an amount, like 640 or 56.50.` };
+
+    lines.push({ description, quantity: quantities[i] || null, amountPence });
+  }
+
+  if (lines.length === 0) return { error: 'Add at least one line to the estimate.' };
+  return { lines };
+}
 
 /**
  * Price a job and offer the owner a date, in one step.
@@ -30,15 +60,19 @@ export async function sendQuote(
   await requireAdmin();
 
   const errors: QuoteState['errors'] = {};
-  const quotedPence = poundsToPence(String(formData.get('price') ?? ''));
   const sessionId = String(formData.get('sessionId') ?? '').trim();
   const quoteNotes = String(formData.get('quoteNotes') ?? '').trim().slice(0, 1000);
 
-  if (quotedPence === null || quotedPence <= 0) {
-    errors.price = 'A price, like 650 or 1240.50.';
-  }
+  const parsedLines = parseLines(formData);
+  if ('error' in parsedLines) errors.lines = parsedLines.error;
   if (!sessionId) errors.sessionId = 'Give them a date to accept.';
   if (Object.keys(errors).length > 0) return { errors };
+
+  const lines = (parsedLines as { lines: ParsedLine[] }).lines;
+  // The total is stored, not derived at read time, so a quote already sent can
+  // never be re-totalled underneath the customer by a later edit.
+  const quotedPence = lines.reduce((total, line) => total + line.amountPence, 0);
+  if (quotedPence <= 0) return { errors: { lines: 'The estimate comes to nothing.' } };
 
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking) return { error: 'That job no longer exists.' };
@@ -56,20 +90,28 @@ export async function sendQuote(
     return { errors: { sessionId: 'That slot is full.' } };
   }
 
-  await prisma.booking.update({
-    where: { id: bookingId },
-    data: {
-      sessionId: session.id,
-      quotedPence,
-      quoteNotes: quoteNotes || null,
-      quotedAt: new Date(),
-      status: 'quoted',
-      // A fresh token every time it is quoted, so a superseded quote's link
-      // cannot be used to accept an old price.
-      quoteToken: generateRebookToken(),
-      // Still nothing owed: the deposit appears when they accept.
-      depositPence: null,
-    },
+  // One transaction: a quote whose lines and total disagreed, because the
+  // second write failed, would be worse than no quote at all.
+  await prisma.$transaction(async (tx) => {
+    await tx.quoteLineItem.deleteMany({ where: { bookingId } });
+    await tx.booking.update({
+      where: { id: bookingId },
+      data: {
+        sessionId: session.id,
+        quotedPence,
+        quoteNotes: quoteNotes || null,
+        quotedAt: new Date(),
+        status: 'quoted',
+        // A fresh token every time it is quoted, so a superseded quote's link
+        // cannot be used to accept an old price.
+        quoteToken: generateRebookToken(),
+        // Still nothing owed: the deposit appears when they accept.
+        depositPence: null,
+        lineItems: {
+          create: lines.map((line, i) => ({ ...line, sortOrder: i })),
+        },
+      },
+    });
   });
 
   await sendQuoteEmail(bookingId);

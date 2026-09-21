@@ -161,8 +161,11 @@ model Booking {
   /// What the customer said they wanted, in their words.
   requestNotes String?
 
-  /// The quote. NULL until the yard has priced the job -- this is why
+  /// The quote TOTAL. NULL until the yard has priced the job -- this is why
   /// depositPence is nullable too, and why nothing may assume a price exists.
+  /// When lineItems exist this is their sum, computed once at quote time and
+  /// stored, so a quote already sent can never be re-totalled underneath the
+  /// customer by a later edit.
   quotedPence Int?
   quotedAt    DateTime?
   /// Free text shown with the quote: what is and is not included.
@@ -207,15 +210,35 @@ model Booking {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  operator  Operator   @relation(fields: [operatorId], references: [id])
-  session   Session?   @relation(fields: [sessionId], references: [id])
-  customer  Customer   @relation(fields: [customerId], references: [id])
-  vessel    Vessel     @relation(fields: [vesselId], references: [id])
+  operator  Operator        @relation(fields: [operatorId], references: [id])
+  session   Session?        @relation(fields: [sessionId], references: [id])
+  customer  Customer        @relation(fields: [customerId], references: [id])
+  vessel    Vessel          @relation(fields: [vesselId], references: [id])
   emailLogs EmailLog[]
+  lineItems QuoteLineItem[]
 
   @@index([sessionId, status])
   @@index([customerId])
   @@index([status, createdAt])
+}
+
+/// One line on a quote: "Wire, terminals & turnbuckles — 1 set — £1,420".
+///
+/// Quantity is free text rather than a number. A yard quotes in its own units
+/// -- "1 set", "32h", "2 lifts", or nothing at all for consumables -- and
+/// forcing that into a decimal with a separate unit column buys nothing when
+/// the line total is typed anyway.
+model QuoteLineItem {
+  id          String  @id @default(cuid())
+  bookingId   String
+  description String
+  quantity    String?
+  amountPence Int
+  sortOrder   Int     @default(0)
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
 }
 
 model SessionCancellation {
