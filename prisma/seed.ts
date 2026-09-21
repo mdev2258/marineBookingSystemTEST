@@ -226,6 +226,7 @@ async function main() {
         lengthMetres: v.loa,
         keelType: v.keel,
         currentPlaceId: places[v.place],
+        ownerToken: generateRebookToken(),
       },
     });
     vessels[v.key] = row.id;
@@ -384,7 +385,7 @@ async function main() {
   // --- The rest of the Halcyon survey list, spread across the board. One boat
   // fills a board, which is exactly the point §8 is making.
   await job({ vessel: 'halcyon', column: 'enquiry', title: 'Keel hydraulic rams and pump — both rams weeping', daysInColumn: 4 });
-  await job({ vessel: 'halcyon', column: 'estimate_sent', title: 'Rig inspection ahead of insurance renewal', quotedPence: p(180), daysInColumn: 3 });
+  const estHalcyonRig = await job({ vessel: 'halcyon', column: 'estimate_sent', title: 'Rig inspection ahead of insurance renewal', quotedPence: p(180), daysInColumn: 3 });
 
   // --- Off the board: paid, lives in the boat's history.
   const paidCurlew = await job({ vessel: 'curlew', column: 'paid', title: 'Winterisation and antifreeze', quotedPence: p(295), acceptedDaysAgo: 48, daysInColumn: 26 });
@@ -464,6 +465,15 @@ async function main() {
       totalPence: p(4180),
       notes: 'Assumes the mast comes down on a yard crane day. Time and materials beyond that.',
       sentAt: londonDateTimeToUtc(addDays(TODAY, -4), '16:20'),
+      token: generateRebookToken(),
+    },
+  });
+  await prisma.estimate.create({
+    data: {
+      bookingId: estHalcyonRig.id,
+      status: 'sent',
+      totalPence: p(180),
+      sentAt: londonDateTimeToUtc(addDays(TODAY, -3), '08:50'),
       token: generateRebookToken(),
     },
   });

@@ -196,3 +196,60 @@ textarea {
 @media (prefers-reduced-motion: reduce) {
   .flash { animation: none; }
 }
+
+/* ── Printable records ───────────────────────────────────────────────────
+   The work record and the rig record are the dated receipts an insurer or a
+   surveyor asks for, so they have to come out of a domestic printer on one
+   sheet of A4 and still look like a document rather than a screenshot.
+
+   Print CSS only -- no PDF library. A browser already knows how to make a
+   PDF out of this, on every platform the trade might be holding. */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 14mm;
+  }
+
+  /* Anything that is navigation, or that only works by being tapped, is not
+     part of the document. */
+  header,
+  .no-print {
+    display: none !important;
+  }
+
+  html,
+  body {
+    background: #fff;
+    color: #000;
+    font-size: 10.5pt;
+  }
+
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  /* The registration marks are a screen conceit; on paper they read as
+     printer dirt. */
+  .blueprint > .corner {
+    display: none;
+  }
+
+  .blueprint {
+    border-color: #999;
+  }
+
+  .muted {
+    color: #444;
+  }
+
+  /* A record split across a page break is a record an insurer queries. */
+  .sheet-row {
+    break-inside: avoid;
+  }
+
+  a {
+    text-decoration: none;
+    color: inherit;
+  }
+}

@@ -160,6 +160,18 @@ async function main() {
     1,
   );
 
+  // A card in Estimate sent with no estimate behind it is a card the owner
+  // page shows as "waiting for you" with nothing for them to look at.
+  const estimateSentCards = await prisma.booking.findMany({
+    where: { column: 'estimate_sent' },
+    select: { title: true, estimates: { where: { status: 'sent' }, select: { id: true } } },
+  });
+  check(
+    'every Estimate sent card has a sent estimate',
+    estimateSentCards.filter((c) => c.estimates.length === 0).length,
+    0,
+  );
+
   // --- waiting on other people (§8) ----------------------------------------
   const postponed = await prisma.visit.findFirst({ where: { status: 'postponed' } });
   check('a visit was postponed', postponed?.postponeReason, 'weather');
@@ -205,6 +217,50 @@ async function main() {
   const lines = await prisma.quoteLineItem.findMany();
   const drifted = lines.filter((l) => l.amountPence !== Math.round(l.qty * l.unitPricePence));
   check('no line total has drifted from qty x unit price', drifted.length, 0);
+
+  // --- the boat file and its records (§7 F2) --------------------------------
+  // Every boat needs a way in for its owner, or "what the owner sees" is a
+  // dead link on some boats and not others -- found in front of a prospect.
+  check(
+    'every boat has an owner token',
+    await prisma.vessel.count({ where: { ownerToken: null } }),
+    0,
+  );
+  check(
+    'owner tokens are unique',
+    new Set((await prisma.vessel.findMany({ select: { ownerToken: true } })).map((v) => v.ownerToken))
+      .size,
+    await prisma.vessel.count(),
+  );
+
+  // A boat that has been somewhere else, so the history has something to show.
+  atLeast('a boat has moved between places', await prisma.vesselMove.count(), 1);
+
+  // The demo prints a rig record. An empty one is worse than not printing it.
+  const rigWork = await prisma.booking.findMany({
+    where: {
+      column: { in: ['done_to_invoice', 'invoiced', 'paid'] },
+      lineItems: { some: { done: true } },
+    },
+    select: { title: true, vesselId: true, lineItems: { select: { description: true } } },
+  });
+  const rigRe = /rig|mast|stay|shroud|forestay|halyard|furler|bottlescrew/i;
+  const withRig = rigWork.filter((j) =>
+    rigRe.test([j.title, ...j.lineItems.map((l) => l.description)].join(' ')),
+  );
+  atLeast('completed rigging work exists to print', withRig.length, 1);
+
+  // And the work record needs finished lines to list.
+  atLeast(
+    'completed jobs have ticked-off lines',
+    await prisma.booking.count({
+      where: {
+        column: { in: ['done_to_invoice', 'invoiced', 'paid'] },
+        lineItems: { some: { done: true } },
+      },
+    }),
+    3,
+  );
 
   // --- freshness -----------------------------------------------------------
   // The seed is positioned relative to "now". If it was seeded yesterday and

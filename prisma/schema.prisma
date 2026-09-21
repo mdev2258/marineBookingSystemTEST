@@ -132,7 +132,7 @@ model Customer {
 /// customerId is NULLABLE: a jot can name a boat before anyone knows whose it
 /// is. See Booking for the same reasoning.
 model Vessel {
-  id             String   @id @default(cuid())
+  id             String  @id @default(cuid())
   operatorId     String
   customerId     String?
   name           String
@@ -149,7 +149,17 @@ model Vessel {
   /// Where the boat is NOW. Moves are recorded as VesselMove rows.
   currentPlaceId String?
   notes          String?
-  createdAt      DateTime @default(now())
+
+  /// The owner's way in, with no account and no password.
+  ///
+  /// Deliberately NOT single-use, unlike every other token in this schema. An
+  /// estimate link is spent the moment it is answered; a boat page answers
+  /// "any update on my boat?" and has to keep working, or the owner rings up
+  /// -- which is the phone call this whole feature exists to stop. Unguessable
+  /// and revocable by regenerating, rather than short-lived.
+  ownerToken String? @unique
+
+  createdAt DateTime @default(now())
 
   operator     Operator     @relation(fields: [operatorId], references: [id])
   customer     Customer?    @relation(fields: [customerId], references: [id])

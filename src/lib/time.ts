@@ -151,3 +151,8 @@ export function daysBetween(from: LondonDate, to: LondonDate): number {
     (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000,
   );
 }
+
+/** "Saturday 19 September 2026", from a bare LondonDate. */
+export function formatLondonDateLong(date: LondonDate): string {
+  return formatInTimeZone(londonDayBounds(date).start, LONDON, 'd MMMM yyyy');
+}

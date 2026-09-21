@@ -1,23 +1,34 @@
-import Link from 'next/link';
-
-/** The demo operator's public-facing chrome: booking, confirmation and rebook. */
+/**
+ * The chrome an owner sees. Used by every token page.
+ *
+ * The business name used to be a link to /book, which is parked behind
+ * FEATURE_YARD -- a tradesperson has no public slot list to send anyone to.
+ * It is plain text now: an owner arriving from an emailed link has exactly
+ * one thing to do on the page they landed on, and a header link is only a way
+ * to lose them.
+ */
 export function PublicShell({
   children,
+  business = { name: 'Harbourside Marine Services', phone: '01590 000000' },
   width = 'wide',
 }: {
   children: React.ReactNode;
+  business?: { name: string; phone: string | null };
   width?: 'wide' | 'narrow';
 }) {
   return (
     <>
       <header className="border-b border-divider">
         <div className="mx-auto flex max-w-2xl items-center justify-between gap-4 px-5 py-4">
-          <Link href="/book" className="font-semibold tracking-tight">
-            Harbourside Marine
-          </Link>
-          <a href="tel:01590000000" className="text-sm text-brand-700 underline">
-            01590 000000
-          </a>
+          <span className="font-condensed font-semibold tracking-tight">{business.name}</span>
+          {business.phone && (
+            <a
+              href={`tel:${business.phone.replace(/\s/g, '')}`}
+              className="text-sm text-accent-700 underline"
+            >
+              {business.phone}
+            </a>
+          )}
         </div>
       </header>
       <main className={`mx-auto w-full px-5 py-8 ${width === 'narrow' ? 'max-w-xl' : 'max-w-2xl'}`}>

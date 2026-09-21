@@ -58,8 +58,17 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
           &lsaquo; Back to the board
         </Link>
 
+        {/* Card -> here -> the boat file is two taps, which is the §7 F2
+            acceptance criterion. The boat name IS the link, because that is
+            what the trade reaches for. */}
         <h1 className="mt-3 font-condensed text-2xl font-semibold tracking-tight">
-          {job.vessel ? job.vessel.name : 'No boat yet'}
+          {job.vessel ? (
+            <Link href={`/admin/boats/${job.vessel.id}`} className="underline decoration-1 underline-offset-4">
+              {job.vessel.name}
+            </Link>
+          ) : (
+            'No boat yet'
+          )}
         </h1>
         <p className="mt-1 text-[15px]">{cardTitle(job)}</p>
 
