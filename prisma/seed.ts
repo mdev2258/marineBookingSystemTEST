@@ -309,6 +309,21 @@ async function main() {
         placeId: input.place ? places[input.place] : v ? places[v.place] : null,
         position: seq * 100,
         columnChangedAt: londonDateTimeToUtc(addDays(TODAY, -(input.daysInColumn ?? 1)), '09:00'),
+        // Backdated, or the timeline reads "job raised today, estimate sent
+        // four days ago". createdAt defaults to now(), and every other date on
+        // a seeded job is relative to TODAY, so it has to be pushed back
+        // behind the oldest thing that happened to it.
+        createdAt: londonDateTimeToUtc(
+          addDays(
+            TODAY,
+            -(Math.max(
+              input.daysInColumn ?? 1,
+              input.acceptedDaysAgo ?? 0,
+              input.quotedPence ? 6 : 0,
+            ) + 3),
+          ),
+          '08:00',
+        ),
         quotedPence: input.quotedPence ?? null,
         quotedAt: input.quotedPence ? londonDateTimeToUtc(addDays(TODAY, -6), '17:00') : null,
         acceptedAt:

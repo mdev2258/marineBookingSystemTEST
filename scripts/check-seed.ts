@@ -225,6 +225,21 @@ async function main() {
     0,
   );
 
+  // A job cannot have been raised after its own estimate went out. The seed
+  // backdates every other date relative to now, so createdAt has to move too --
+  // otherwise the timeline on screen reads back to front in front of a prospect.
+  const jobsWithEstimates = await prisma.booking.findMany({
+    where: { estimates: { some: { sentAt: { not: null } } } },
+    select: { createdAt: true, estimates: { select: { sentAt: true } } },
+  });
+  check(
+    'no job was raised after its own estimate was sent',
+    jobsWithEstimates.filter((j) =>
+      j.estimates.some((e) => e.sentAt && e.sentAt < j.createdAt),
+    ).length,
+    0,
+  );
+
   // --- waiting on other people (§8) ----------------------------------------
   const postponed = await prisma.visit.findFirst({ where: { status: 'postponed' } });
   check('a visit was postponed', postponed?.postponeReason, 'weather');
