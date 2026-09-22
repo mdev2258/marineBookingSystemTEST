@@ -14,7 +14,22 @@ import {
   type WaitingReason,
 } from '@/lib/enums';
 import { cardTitle } from '@/lib/board';
-import { daysBetween, formatLondonDateShort, londonDateString, todayInLondon } from '@/lib/time';
+import { buildTimeline } from '@/lib/timeline';
+import { DecidedViaField } from '@/components/admin/board/decided-via';
+import { formatPence } from '@/lib/money';
+import { DECIDED_VIA_LABEL, type DecidedVia } from '@/lib/enums';
+import {
+  raiseVariation,
+  recordEstimateDecision,
+  recordVariationDecision,
+} from '@/app/admin/board/[id]/actions';
+import {
+  daysBetween,
+  formatDateShort,
+  formatLondonDateShort,
+  londonDateString,
+  todayInLondon,
+} from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,7 +55,10 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
       vessel: { select: { id: true, name: true, make: true, model: true } },
       customer: { select: { name: true, phone: true, email: true } },
       place: { select: { name: true } },
-      variations: { where: { status: 'awaiting_owner' }, select: { id: true, description: true } },
+      variations: { orderBy: { createdAt: 'desc' } },
+      estimates: { orderBy: { createdAt: 'desc' } },
+      lineItems: { orderBy: { sortOrder: 'asc' } },
+      emailLogs: { orderBy: { createdAt: 'desc' }, take: 20 },
     },
   });
   if (!job) notFound();
@@ -50,6 +68,12 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
   const inColumnFor = daysBetween(londonDateString(job.columnChangedAt), today);
   const isJot = column === 'jotted';
   const missingReason = params.error === 'reason';
+  const badVariation = params.error === 'variation';
+
+  const liveEstimate = job.estimates.find((e) => e.status === 'sent');
+  const awaiting = job.variations.filter((v) => v.status === 'awaiting_owner');
+  const settled = job.variations.filter((v) => v.status !== 'awaiting_owner');
+  const timeline = buildTimeline(job);
 
   return (
     <AdminShell>
@@ -102,16 +126,190 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
         </p>
       )}
 
-      {job.variations.length > 0 && (
-        <Plate className="mt-5 bg-accent-100 p-3">
-          <p className="k">Waiting on the owner</p>
-          {job.variations.map((v) => (
-            <p key={v.id} className="mt-1 text-[14px]">
-              {v.description}
+      {/* ---- Estimate ---- */}
+      <section className="mt-8">
+        <h2 className="k flex items-baseline justify-between border-b border-divider pb-2">
+          <span>Estimate</span>
+          <Link href={`/admin/board/${job.id}/estimate`} className="underline">
+            {job.lineItems.length > 0 ? 'Edit lines' : 'Build one'}
+          </Link>
+        </h2>
+
+        {liveEstimate ? (
+          <div className="mt-3">
+            <p className="text-[15px]">
+              <span className="numeric text-xl">{formatPence(liveEstimate.totalPence)}</span>{' '}
+              <span className="muted">sent, waiting on the owner</span>
             </p>
-          ))}
-        </Plate>
-      )}
+
+            {/* The owner may well answer by ringing. Recording that here is
+                the normal case, not the exception. */}
+            <form
+              action={recordEstimateDecision.bind(null, liveEstimate.id)}
+              className="mt-4 border border-divider p-3"
+            >
+              <p className="k">They got back to you?</p>
+              <DecidedViaField />
+
+              <label htmlFor="estimateNote" className="k mt-3 block muted">
+                What they said
+              </label>
+              <input
+                id="estimateNote"
+                name="decisionNote"
+                type="text"
+                placeholder="Rang back first thing, said go ahead"
+                className="mt-1 min-h-11 w-full border border-divider bg-bg px-2 text-[14px]"
+              />
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="submit"
+                  name="decision"
+                  value="accepted"
+                  className="k min-h-12 bg-accent-900 px-4 text-bg hover:bg-ink"
+                >
+                  They said yes
+                </button>
+                <button
+                  type="submit"
+                  name="decision"
+                  value="declined"
+                  className="k min-h-12 border border-divider px-4 hover:bg-neutral-200"
+                >
+                  They said no
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : (
+          <p className="mt-3 text-[13.5px] muted">
+            {job.lineItems.length > 0
+              ? `${job.lineItems.length} line${job.lineItems.length === 1 ? '' : 's'} drafted, nothing sent yet.`
+              : 'Nothing priced up yet.'}
+          </p>
+        )}
+      </section>
+
+      {/* ---- Extra work ---- */}
+      <section className="mt-8">
+        <h2 className="k border-b border-divider pb-2">Extra work</h2>
+
+        {awaiting.map((v) => (
+          <Plate key={v.id} className="mt-3 bg-accent-100 p-3">
+            <p className="k">Waiting on the owner</p>
+            <p className="mt-1 text-[15px] font-semibold">{v.description}</p>
+            {v.reason && <p className="mt-1 text-[13.5px]">{v.reason}</p>}
+            <p className="numeric mt-1 text-[16px]">{formatPence(v.estimatePence)}</p>
+
+            <form action={recordVariationDecision.bind(null, v.id)} className="mt-3">
+              <DecidedViaField />
+              <label htmlFor={`vnote-${v.id}`} className="k mt-3 block muted">
+                What they said
+              </label>
+              <input
+                id={`vnote-${v.id}`}
+                name="decisionNote"
+                type="text"
+                className="mt-1 min-h-11 w-full border border-divider bg-bg px-2 text-[14px]"
+              />
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="submit"
+                  name="decision"
+                  value="approved"
+                  className="k min-h-12 bg-accent-900 px-4 text-bg hover:bg-ink"
+                >
+                  Approved
+                </button>
+                <button
+                  type="submit"
+                  name="decision"
+                  value="declined"
+                  className="k min-h-12 border border-divider px-4 hover:bg-neutral-200"
+                >
+                  Declined
+                </button>
+                <button
+                  type="submit"
+                  name="decision"
+                  value="withdrawn"
+                  className="k min-h-12 border border-divider px-4 muted hover:bg-neutral-200"
+                >
+                  Withdraw it
+                </button>
+              </div>
+            </form>
+          </Plate>
+        ))}
+
+        {settled.map((v) => (
+          <p key={v.id} className="mt-2 flex flex-wrap items-baseline gap-x-3 text-[13.5px]">
+            <span>{v.description}</span>
+            <span className="numeric">{formatPence(v.estimatePence)}</span>
+            <span className="k muted">
+              {v.status}
+              {v.decidedVia ? ` · ${DECIDED_VIA_LABEL[v.decidedVia as DecidedVia]}` : ''}
+            </span>
+          </p>
+        ))}
+
+        {/* Three fields, typed one-handed with the thing still in shot. */}
+        <form
+          id="variation"
+          action={raiseVariation.bind(null, job.id)}
+          className="mt-4 border border-divider p-3"
+        >
+          <p className="k">Found something?</p>
+
+          {badVariation && (
+            <p className="mt-2 text-[13.5px] font-semibold text-accent-800">
+              Needs at least what it is and what it costs.
+            </p>
+          )}
+
+          <label htmlFor="vdesc" className="k mt-3 block muted">
+            What
+          </label>
+          <input
+            id="vdesc"
+            name="description"
+            type="text"
+            placeholder="Galley seacock seized"
+            className="mt-1 min-h-12 w-full border border-divider bg-bg px-2 text-[15px]"
+          />
+
+          <label htmlFor="vreason" className="k mt-3 block muted">
+            Why it matters
+          </label>
+          <input
+            id="vreason"
+            name="reason"
+            type="text"
+            placeholder="Corroded solid. Not safe to leave another season."
+            className="mt-1 min-h-12 w-full border border-divider bg-bg px-2 text-[15px]"
+          />
+
+          <label htmlFor="vamount" className="k mt-3 block muted">
+            &pound;
+          </label>
+          <input
+            id="vamount"
+            name="amount"
+            type="text"
+            inputMode="decimal"
+            placeholder="140"
+            className="mt-1 min-h-12 w-full max-w-40 border border-divider bg-bg px-2 text-[15px]"
+          />
+
+          <button
+            type="submit"
+            className="k mt-4 min-h-14 w-full bg-accent-900 px-6 text-bg hover:bg-ink sm:w-auto"
+          >
+            Ask the owner
+          </button>
+        </form>
+      </section>
 
       {isJot && (
         <Link
@@ -205,6 +403,22 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
           {column === 'waiting' ? 'Update the hold' : 'Move to Waiting'}
         </button>
       </form>
+
+      {/* ---- Timeline ---- */}
+      <section className="mt-10 pb-10">
+        <h2 className="k border-b border-divider pb-2">What happened, and how</h2>
+        <ul className="mt-3 space-y-2">
+          {timeline.map((entry, i) => (
+            <li key={i} className="flex gap-3 text-[13.5px]">
+              <span className="k w-28 shrink-0 muted">{formatDateShort(entry.at)}</span>
+              <span>
+                <span className={entry.emphasis ? 'font-semibold' : ''}>{entry.label}</span>
+                {entry.detail && <span className="block muted">{entry.detail}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
     </AdminShell>
   );
 }

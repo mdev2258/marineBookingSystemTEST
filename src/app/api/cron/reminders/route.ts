@@ -1,4 +1,4 @@
-import { sendReminders, sweepExpiredHolds } from '@/lib/reminders';
+import { chaseVariations, sendReminders, sweepExpiredHolds } from '@/lib/reminders';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +18,8 @@ export async function GET(request: Request) {
 
   const swept = await sweepExpiredHolds();
   const reminders = await sendReminders();
+  // One chase per unanswered variation, 24h after it was raised, then stop.
+  const variations = await chaseVariations();
 
-  return Response.json({ ...reminders, expiredHoldsSwept: swept });
+  return Response.json({ ...reminders, expiredHoldsSwept: swept, variationsChased: variations });
 }

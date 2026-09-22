@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { sendReminderEmail } from '@/lib/notifications';
+import { sendReminderEmail, sendVariationEmail } from '@/lib/notifications';
 import { addDays, londonDayBounds, todayInLondon } from '@/lib/time';
 
 export type ReminderResult = { considered: number; sent: number; failed: number };
@@ -57,4 +57,50 @@ export async function sweepExpiredHolds(now: Date = new Date()): Promise<number>
     data: { status: 'expired' },
   });
   return result.count;
+}
+
+/**
+ * Chase variations the owner has not answered.
+ *
+ * EXACTLY ONE chase, 24 hours after it was raised, and then the app stops
+ * (ANALYSIS-TRADES.md §7 F3). Not a drip campaign: the boat is opened up and
+ * the trade is waiting, so one nudge is useful and a second is nagging a
+ * customer the trade has to keep.
+ *
+ * `reminderSentAt` is the thing that makes it exactly one, and it is stamped
+ * only on a successful send -- a provider outage retries on the next run
+ * rather than silently swallowing the chase.
+ */
+export async function chaseVariations(now: Date = new Date()): Promise<ReminderResult> {
+  const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  const due = await prisma.variation.findMany({
+    where: {
+      status: 'awaiting_owner',
+      reminderSentAt: null,
+      createdAt: { lte: cutoff },
+      // No token means nothing for the owner to click, so there is nothing
+      // worth chasing them about.
+      token: { not: null },
+    },
+    select: { id: true },
+  });
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const variation of due) {
+    const result = await sendVariationEmail(variation.id, true);
+    if (result?.ok) {
+      await prisma.variation.update({
+        where: { id: variation.id },
+        data: { reminderSentAt: new Date() },
+      });
+      sent++;
+    } else {
+      failed++;
+    }
+  }
+
+  return { considered: due.length, sent, failed };
 }

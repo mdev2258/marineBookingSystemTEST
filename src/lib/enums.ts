@@ -55,13 +55,23 @@ export const CANCELLATION_REASON_LABEL: Record<CancellationReason, string> = {
 };
 
 export const EMAIL_TYPE = [
+  // Trades product.
+  'estimate',
+  'variation',
+  'variation_reminder',
+  'job_update',
+  'visit_postponed',
+  'service_reminder',
+  'invoice',
+  'invoice_reminder',
+  'contact_form',
+  // Parked yard flow. Still valid: the rows they wrote are still counted.
   'enquiry_received',
   'quote',
   'booking_confirmation',
   'cancellation',
   'rebook_confirmation',
   'reminder',
-  'contact_form',
 ] as const;
 export type EmailType = (typeof EMAIL_TYPE)[number];
 
@@ -290,14 +300,3 @@ export const REMINDER_KIND_LABEL: Record<ReminderKind, string> = {
 export const REMINDER_STATUS = ['upcoming', 'sent', 'booked', 'dismissed'] as const;
 export type ReminderStatus = (typeof REMINDER_STATUS)[number];
 
-/** Email types added for the trades product. The yard types above stay valid. */
-export const TRADE_EMAIL_TYPE = [
-  'estimate',
-  'variation',
-  'variation_reminder',
-  'job_update',
-  'visit_postponed',
-  'service_reminder',
-  'invoice',
-  'invoice_reminder',
-] as const;

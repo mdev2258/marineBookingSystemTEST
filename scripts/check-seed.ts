@@ -26,6 +26,8 @@ import {
   yearsBetween,
 } from '../src/lib/time';
 import { JOB_COLUMN, WAITING_REASON } from '../src/lib/enums';
+import { lineAmountPence, parseQty, totalsFor } from '../src/lib/estimates';
+import { buildTimeline } from '../src/lib/timeline';
 
 const prisma = new PrismaClient();
 
@@ -55,6 +57,29 @@ async function main() {
   check('yearsBetween counts completed anniversaries', yearsBetween('2015-10-25', '2026-09-21'), 10);
   check('yearsBetween on the anniversary itself', yearsBetween('2015-09-21', '2026-09-21'), 11);
   check('monthsBetween rounds down', monthsBetween('2025-11-30', '2026-09-21'), 9);
+
+  // --- estimate maths (pure, no data) --------------------------------------
+  // Money, so it gets checked rather than eyeballed. The VAT case that matters
+  // is the unregistered one: vat must be null, never 0, so no renderer can
+  // print "£0.00 VAT" for a trade who is not registered.
+  const twoLines = [
+    { amountPence: 15400, vatRateBps: 2000 },
+    { amountPence: 7800, vatRateBps: 2000 },
+  ];
+  check('unregistered business has no VAT concept', JSON.stringify(totalsFor(twoLines, false)), JSON.stringify({ net: 23200, vat: null, gross: 23200 }));
+  check('registered business adds VAT', JSON.stringify(totalsFor(twoLines, true)), JSON.stringify({ net: 23200, vat: 4640, gross: 27840 }));
+  // Per line, not on the sum: three 1p lines at 20% round to 0p, not 1p.
+  check('VAT rounds per line', totalsFor([1, 1, 1].map((a) => ({ amountPence: a, vatRateBps: 2000 })), true).vat, 0);
+  check('blank quantity means one', parseQty(''), 1);
+  check('decimal hours parse', parseQty('2.5'), 2.5);
+  check('zero quantity is rejected', parseQty('0'), null);
+  check('line total has no float drift', lineAmountPence(3, 333), 999);
+  const tl = buildTimeline({
+    createdAt: new Date('2026-09-01T09:00:00Z'),
+    estimates: [{ status: 'accepted', totalPence: 24500, sentAt: new Date('2026-09-02T10:00:00Z'), decidedAt: new Date('2026-09-03T08:15:00Z'), decidedVia: 'phone', decisionNote: 'Rang back' }],
+    variations: [],
+  });
+  check('timeline is newest first and records HOW', tl[0]?.label, 'Estimate accepted — Agreed by phone');
 
   // --- the business --------------------------------------------------------
   const op = await prisma.operator.findFirst();
@@ -169,6 +194,34 @@ async function main() {
   check(
     'every Estimate sent card has a sent estimate',
     estimateSentCards.filter((c) => c.estimates.length === 0).length,
+    0,
+  );
+
+  // A sent estimate with no token is one the owner cannot answer.
+  check(
+    'every sent estimate carries a token',
+    await prisma.estimate.count({ where: { status: 'sent', token: null } }),
+    0,
+  );
+  // And a settled one must NOT: the token is single-use and cleared by the
+  // same statement that settles it.
+  check(
+    'settled estimates have spent their token',
+    await prisma.estimate.count({
+      where: { status: { in: ['accepted', 'declined', 'superseded'] }, token: { not: null } },
+    }),
+    0,
+  );
+  check(
+    'the awaiting variation carries a token',
+    await prisma.variation.count({ where: { status: 'awaiting_owner', token: null } }),
+    0,
+  );
+  check(
+    'settled variations have spent their token',
+    await prisma.variation.count({
+      where: { status: { in: ['approved', 'declined', 'withdrawn'] }, token: { not: null } },
+    }),
     0,
   );
 

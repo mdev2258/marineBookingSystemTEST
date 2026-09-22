@@ -22,15 +22,19 @@ function esc(value: string): string {
 
 // Plain, readable transactional email. Inline styles only -- no CSS file
 // survives Gmail, and nothing here is worth a rendering library.
+//
+// ponytail: the business name and footer are hardcoded to the demo firm. They
+// should come from the Operator row once there is a second install; threading
+// it through every template earns nothing while there is exactly one.
 function wrap(heading: string, bodyHtml: string): string {
   return `<!doctype html>
 <html><body style="margin:0;padding:24px;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#0f172a;">
   <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:12px;padding:28px;">
-    <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#0b4f6c;font-weight:700;">Harbourside Marine</div>
+    <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#0b4f6c;font-weight:700;">Harbourside Marine Services</div>
     <h1 style="font-size:21px;line-height:1.3;margin:14px 0 18px;">${heading}</h1>
     ${bodyHtml}
     <hr style="border:0;border-top:1px solid #e2e8f0;margin:26px 0 14px;">
-    <p style="font-size:12px;color:#475569;margin:0;">Harbourside Marine, Lymington &middot; 01590 000000</p>
+    <p style="font-size:12px;color:#475569;margin:0;">Harbourside Marine Services &middot; Chichester Harbour &middot; 07700 900001</p>
   </div>
 </body></html>`;
 }
@@ -397,5 +401,137 @@ ${input.message}`;
         row('Business', input.business ? esc(input.business) : '—'),
       ])}<p style="font-size:15px;white-space:pre-wrap;">${esc(input.message)}</p>`,
     ),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Trades product. Everything above belongs to the parked yard flow.
+// ---------------------------------------------------------------------------
+
+/**
+ * Loads an estimate with everything an email about it needs, or null if it
+ * cannot be emailed about at all -- same narrowing rule as loadBooking().
+ */
+async function loadEstimate(estimateId: string) {
+  const e = await prisma.estimate.findUnique({
+    where: { id: estimateId },
+    include: { booking: { include: { customer: true, vessel: true, lineItems: { orderBy: { sortOrder: 'asc' } } } } },
+  });
+  if (!e || !e.booking.customer || !e.booking.vessel) return null;
+  return { ...e, customer: e.booking.customer, vessel: e.booking.vessel };
+}
+
+/**
+ * The estimate itself, carrying the single-use link that answers it.
+ *
+ * The word throughout is ESTIMATE, never quote: this is time and materials on
+ * a boat nobody has opened up yet, and saying "quote" invites an argument the
+ * first time a seized fastening adds an hour (§3.6).
+ */
+export async function sendEstimateEmail(estimateId: string): Promise<SendEmailResult | null> {
+  const e = await loadEstimate(estimateId);
+  if (!e || !e.token) return null;
+
+  const link = `${baseUrl()}/estimate/${e.token}`;
+  const lines = e.booking.lineItems;
+  const subject = `Estimate for ${e.vessel.name} — ${formatPence(e.totalPence)}`;
+
+  const text = `Hi ${e.customer.name},
+
+Here is our estimate for the work on ${e.vessel.name}.
+
+${lines.map((l) => `  ${l.description}${l.qty !== 1 ? ` (${l.qty})` : ''}  ${formatPence(l.amountPence)}`).join('\n')}
+
+Estimate total: ${formatPence(e.totalPence)}
+${e.notes ? `\n${e.notes}\n` : ''}
+This is an estimate, not a fixed price. It is based on what we can see so far,
+and we will always come back to you before doing anything that adds to it.
+
+Have a look and let us know: ${link}
+
+Or just ring us — we can mark it agreed at this end.
+
+${e.booking.reference}`;
+
+  return sendEmail({
+    type: 'estimate',
+    to: e.customer.email,
+    subject,
+    text,
+    html: wrap(
+      `Estimate for ${esc(e.vessel.name)}`,
+      `${table(lines.map((l) => row(esc(l.description), formatPence(l.amountPence))))}
+      <p style="font-size:17px;"><strong>Total: ${formatPence(e.totalPence)}</strong></p>
+      ${e.notes ? note(e.notes) : ''}
+      <p style="font-size:14px;color:#334155;">This is an <strong>estimate, not a fixed price</strong>. It is based on what we can see so far, and we will always come back to you before doing anything that adds to it.</p>
+      ${button(link, 'Have a look')}
+      <p style="font-size:14px;color:#334155;">Or just ring us — we can mark it agreed at this end.</p>`,
+    ),
+    bookingId: e.bookingId,
+    customerId: e.customer.id,
+    vesselId: e.vessel.id,
+  });
+}
+
+async function loadVariation(variationId: string) {
+  const v = await prisma.variation.findUnique({
+    where: { id: variationId },
+    include: { booking: { include: { customer: true, vessel: true } } },
+  });
+  if (!v || !v.booking.customer || !v.booking.vessel) return null;
+  return { ...v, customer: v.booking.customer, vessel: v.booking.vessel };
+}
+
+/**
+ * Extra work found once the boat is open.
+ *
+ * This is the single most valuable email in the product: verbally-approved
+ * extra work, later disputed on the invoice, is the fight this whole feature
+ * exists to prevent. So it states what was found, why it matters, and what it
+ * costs, and it records the answer with a timestamp.
+ */
+export async function sendVariationEmail(
+  variationId: string,
+  isReminder = false,
+): Promise<SendEmailResult | null> {
+  const v = await loadVariation(variationId);
+  if (!v || !v.token) return null;
+
+  const link = `${baseUrl()}/variation/${v.token}`;
+  const subject = isReminder
+    ? `Still need your go-ahead — ${v.vessel.name}`
+    : `Extra work found on ${v.vessel.name} — ${formatPence(v.estimatePence)}`;
+
+  const text = `Hi ${v.customer.name},
+
+${isReminder ? 'Just a nudge — we are still waiting to hear back about this.' : `While we were working on ${v.vessel.name} we found something.`}
+
+${v.description}
+${v.reason ? `\nWhy: ${v.reason}\n` : ''}
+Estimated cost: ${formatPence(v.estimatePence)}
+
+Nothing happens until you say so. Yes or no here: ${link}
+
+Or ring us and we will note it down at this end.
+
+${v.booking.reference}`;
+
+  return sendEmail({
+    type: isReminder ? 'variation_reminder' : 'variation',
+    to: v.customer.email,
+    subject,
+    text,
+    html: wrap(
+      isReminder ? `Still need your go-ahead` : `We found something on ${esc(v.vessel.name)}`,
+      `${note(v.description)}
+      ${v.reason ? `<p style="font-size:15px;"><strong>Why:</strong> ${esc(v.reason)}</p>` : ''}
+      <p style="font-size:17px;"><strong>Estimated cost: ${formatPence(v.estimatePence)}</strong></p>
+      <p style="font-size:15px;"><strong>Nothing happens until you say so.</strong></p>
+      ${button(link, 'Yes or no')}
+      <p style="font-size:14px;color:#334155;">Or ring us and we will note it down at this end.</p>`,
+    ),
+    bookingId: v.bookingId,
+    customerId: v.customer.id,
+    vesselId: v.vessel.id,
   });
 }

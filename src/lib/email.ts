@@ -11,6 +11,8 @@ export type SendEmailInput = {
   bookingId?: string;
   sessionId?: string;
   customerId?: string;
+  /** The boat this is about, so the boat file can show what was sent. */
+  vesselId?: string;
 };
 
 export type SendEmailResult = {
@@ -97,6 +99,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       bookingId: input.bookingId,
       sessionId: input.sessionId,
       customerId: input.customerId,
+      vesselId: input.vesselId,
     },
   });
 
