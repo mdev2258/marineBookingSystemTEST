@@ -256,6 +256,26 @@ async function main() {
     1,
   );
 
+  // A postponed visit with no reason is an email that cannot be written --
+  // sendVisitPostponedEmail has to put something after "because of".
+  check(
+    'every postponed visit carries a reason',
+    await prisma.visit.count({ where: { status: 'postponed', postponeReason: null } }),
+    0,
+  );
+
+  // A card waiting on parts should have a part outstanding, or the Waiting
+  // column is lying and the "everything is in" prompt never fires.
+  const waitingOnParts = await prisma.booking.findMany({
+    where: { column: 'waiting', waitingReason: 'parts' },
+    select: { title: true, partOrders: { where: { arrivedOn: null }, select: { id: true } } },
+  });
+  check(
+    'cards waiting on parts have a part still outstanding',
+    waitingOnParts.filter((b) => b.partOrders.length === 0).length,
+    0,
+  );
+
   // --- money (§8) ----------------------------------------------------------
   check('three invoices', await prisma.invoice.count(), 3);
   check('one invoice is paid', await prisma.invoice.count({ where: { status: 'paid' } }), 1);

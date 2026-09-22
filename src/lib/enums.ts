@@ -313,3 +313,38 @@ export const REMINDER_KIND_LABEL: Record<ReminderKind, string> = {
 export const REMINDER_STATUS = ['upcoming', 'sent', 'booked', 'dismissed'] as const;
 export type ReminderStatus = (typeof REMINDER_STATUS)[number];
 
+
+/**
+ * Why a planned visit did not happen.
+ *
+ * Deliberately NOT the same list as WAITING_REASON. A card waits on things
+ * that were never scheduled ("parts", "owner decision"); a visit is postponed
+ * from a date that existed, and the owner had it in their diary. The overlap
+ * is real but the audiences differ -- a waiting reason is for the trade, a
+ * postpone reason goes in an email to someone whose weekend just changed.
+ */
+export const POSTPONE_REASON = ['weather', 'tide', 'parts', 'access', 'crane', 'other'] as const;
+export type PostponeReason = (typeof POSTPONE_REASON)[number];
+
+export const POSTPONE_REASON_LABEL: Record<PostponeReason, string> = {
+  weather: 'Weather',
+  tide: 'Tide',
+  parts: 'Parts not here',
+  access: 'Could not get to her',
+  crane: 'Crane or lift',
+  other: 'Other',
+};
+
+/** What the OWNER is told. They do not care whose fault it was, only why. */
+export const POSTPONE_REASON_OWNER: Record<PostponeReason, string> = {
+  weather: 'the weather',
+  tide: 'the tide',
+  parts: 'a part that has not arrived',
+  access: 'not being able to get to her',
+  crane: 'the lift being moved',
+  other: 'something outside our control',
+};
+
+export function isPostponeReason(v: string): v is PostponeReason {
+  return (POSTPONE_REASON as readonly string[]).includes(v);
+}

@@ -1,8 +1,19 @@
 import { prisma } from '@/lib/prisma';
 import { baseUrl, sendEmail, type SendEmailResult } from '@/lib/email';
 import { formatPence } from '@/lib/money';
-import { formatDateTime, formatTimeRange } from '@/lib/time';
-import { CANCELLATION_REASON_LABEL, type CancellationReason } from '@/lib/enums';
+import {
+  formatDateShort,
+  formatDateTime,
+  formatLondonDateLong,
+  formatTimeRange,
+  type LondonDate,
+} from '@/lib/time';
+import {
+  CANCELLATION_REASON_LABEL,
+  POSTPONE_REASON_OWNER,
+  type CancellationReason,
+  type PostponeReason,
+} from '@/lib/enums';
 
 /**
  * Everything interpolated into an email body goes through this first.
@@ -529,6 +540,78 @@ ${v.booking.reference}`;
       <p style="font-size:15px;"><strong>Nothing happens until you say so.</strong></p>
       ${button(link, 'Yes or no')}
       <p style="font-size:14px;color:#334155;">Or ring us and we will note it down at this end.</p>`,
+    ),
+    bookingId: v.bookingId,
+    customerId: v.customer.id,
+    vesselId: v.vessel.id,
+  });
+}
+
+async function loadVisit(visitId: string) {
+  const v = await prisma.visit.findUnique({
+    where: { id: visitId },
+    include: {
+      place: true,
+      booking: { include: { customer: true, vessel: true } },
+    },
+  });
+  if (!v || !v.booking.customer || !v.booking.vessel) return null;
+  return { ...v, customer: v.booking.customer, vessel: v.booking.vessel };
+}
+
+/**
+ * "We are not coming on Thursday after all."
+ *
+ * This is the repointed cancel/rebook machinery, and it is the one email in
+ * the product whose ABSENCE is the failure everyone complains about: a date
+ * slips, nobody says anything, and the owner drives down at the weekend to a
+ * boat nobody has touched. YARD-OPS.md has the forum thread -- a lift that
+ * slipped without notice, trades rescheduled around nothing, 28 days ashore
+ * and the bill up by £300.
+ *
+ * So it leads with the fact, gives the reason in the owner's terms, and either
+ * names a new date or says plainly that we will be in touch. It never
+ * apologises into vagueness.
+ */
+export async function sendVisitPostponedEmail(
+  visitId: string,
+  newDate: LondonDate | null,
+): Promise<SendEmailResult | null> {
+  const v = await loadVisit(visitId);
+  if (!v) return null;
+
+  const was = formatDateTime(v.startsAt);
+  const because = v.postponeReason
+    ? POSTPONE_REASON_OWNER[v.postponeReason as PostponeReason] ?? 'something outside our control'
+    : 'something outside our control';
+  const next = newDate
+    ? `We have put her down for ${formatLondonDateLong(newDate)} instead.`
+    : 'We will be in touch as soon as we can give you a new date.';
+
+  const subject = `${v.vessel.name} — ${formatDateShort(v.startsAt)} moved`;
+
+  const text = `Hi ${v.customer.name},
+
+We were due on ${v.vessel.name} on ${was}, and we are not going to make it because of ${because}.
+
+${next}
+${v.postponeNote ? `\n${v.postponeNote}\n` : ''}
+Nothing else changes, and there is nothing you need to do. We would rather tell you now
+than have you find out at the weekend.
+
+${v.booking.reference}`;
+
+  return sendEmail({
+    type: 'visit_postponed',
+    to: v.customer.email,
+    subject,
+    text,
+    html: wrap(
+      `${esc(v.vessel.name)} — ${esc(formatDateShort(v.startsAt))} moved`,
+      `<p style="font-size:15px;">We were due on <strong>${esc(v.vessel.name)}</strong> on ${esc(was)}, and we are not going to make it because of ${esc(because)}.</p>
+      <p style="font-size:15px;"><strong>${esc(next)}</strong></p>
+      ${v.postponeNote ? note(v.postponeNote) : ''}
+      <p style="font-size:14px;color:#334155;">Nothing else changes, and there is nothing you need to do. We would rather tell you now than have you find out at the weekend.</p>`,
     ),
     bookingId: v.bookingId,
     customerId: v.customer.id,

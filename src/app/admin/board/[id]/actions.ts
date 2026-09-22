@@ -4,12 +4,17 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/app/admin/actions';
-import { isDecidedVia, LINE_KIND, type LineKind } from '@/lib/enums';
+import { isDecidedVia, isPostponeReason, LINE_KIND, type LineKind } from '@/lib/enums';
 import { generateRebookToken } from '@/lib/reference';
 import { nextPosition } from '@/lib/board';
 import { DEFAULT_VAT_BPS, lineAmountPence, parseQty, totalsFor } from '@/lib/estimates';
 import { poundsToPence } from '@/lib/money';
-import { sendEstimateEmail, sendVariationEmail } from '@/lib/notifications';
+import {
+  sendEstimateEmail,
+  sendVariationEmail,
+  sendVisitPostponedEmail,
+} from '@/lib/notifications';
+import { londonDateTimeToUtc, todayInLondon } from '@/lib/time';
 
 async function business() {
   const op = await prisma.operator.findFirst();
@@ -295,4 +300,175 @@ export async function recordVariationDecision(
 
   revalidatePath('/admin/board');
   redirect(`/admin/board/${variation.bookingId}`);
+}
+
+// ---------------------------------------------------------------------------
+// F4 — waiting on other people
+// ---------------------------------------------------------------------------
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^\d{2}:\d{2}$/;
+
+/**
+ * A part on order. The ETA is the useful field: it is what turns "waiting on
+ * parts" from a shrug into a date the card can be held to.
+ */
+export async function addPartOrder(jobId: string, formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const item = String(formData.get('item') ?? '').trim().slice(0, 200);
+  if (!item) redirect(`/admin/board/${jobId}?error=part#parts`);
+
+  const supplier = String(formData.get('supplier') ?? '').trim().slice(0, 120);
+  const etaOn = String(formData.get('etaOn') ?? '').trim();
+  const cost = poundsToPence(String(formData.get('cost') ?? ''));
+
+  await prisma.partOrder.create({
+    data: {
+      bookingId: jobId,
+      item,
+      supplier: supplier || null,
+      orderedOn: todayInLondon(),
+      etaOn: DATE_RE.test(etaOn) ? etaOn : null,
+      costPence: cost,
+    },
+  });
+
+  revalidatePath(`/admin/board/${jobId}`);
+  redirect(`/admin/board/${jobId}#parts`);
+}
+
+/**
+ * Tick a part in.
+ *
+ * `arrivedOn` in the WHERE keeps this safely repeatable -- a double tap on a
+ * cold phone matches zero rows the second time rather than rewriting the date.
+ */
+export async function markPartArrived(partId: string, jobId: string): Promise<void> {
+  await requireAdmin();
+
+  await prisma.partOrder.updateMany({
+    where: { id: partId, arrivedOn: null },
+    data: { arrivedOn: todayInLondon() },
+  });
+
+  revalidatePath(`/admin/board/${jobId}`);
+  redirect(`/admin/board/${jobId}#parts`);
+}
+
+/** Put a day in the diary for this job. */
+export async function planVisit(jobId: string, formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const date = String(formData.get('date') ?? '').trim();
+  const time = String(formData.get('time') ?? '').trim() || '09:00';
+  const placeId = String(formData.get('placeId') ?? '').trim();
+
+  if (!DATE_RE.test(date) || !TIME_RE.test(time)) {
+    redirect(`/admin/board/${jobId}?error=visit#visits`);
+  }
+
+  const job = await prisma.booking.findUnique({
+    where: { id: jobId },
+    select: { placeId: true },
+  });
+
+  await prisma.visit.create({
+    data: {
+      bookingId: jobId,
+      placeId: placeId || job?.placeId || null,
+      startsAt: londonDateTimeToUtc(date, time),
+      status: 'planned',
+    },
+  });
+
+  // A job with a day in the diary is planned work, and the card should say so.
+  await prisma.booking.updateMany({
+    where: { id: jobId, column: { in: ['enquiry', 'estimate_sent'] } },
+    data: { column: 'booked', columnChangedAt: new Date(), plannedOn: date },
+  });
+  await prisma.booking.update({ where: { id: jobId }, data: { plannedOn: date } });
+
+  revalidatePath('/admin/board');
+  redirect(`/admin/board/${jobId}#visits`);
+}
+
+/** Work happened. */
+export async function markVisitDone(visitId: string, jobId: string): Promise<void> {
+  await requireAdmin();
+
+  await prisma.visit.updateMany({
+    where: { id: visitId, status: 'planned' },
+    data: { status: 'done' },
+  });
+
+  revalidatePath(`/admin/board/${jobId}`);
+  redirect(`/admin/board/${jobId}#visits`);
+}
+
+/**
+ * POSTPONE A VISIT. The repointed cancel/rebook machinery, and the single most
+ * valuable thing in F4.
+ *
+ * The failure this exists to prevent is not the slip itself -- weather slips,
+ * cranes slip -- it is the SILENCE. An owner who drives down at the weekend to
+ * an untouched boat is the complaint in YARD-OPS.md §6, and it costs the
+ * relationship rather than the day.
+ *
+ * So: commit the postponement, then email. Never inside the transaction, since
+ * a rollback cannot unsend a message telling someone their weekend changed.
+ * A new date is optional -- "we will be in touch" is an honest answer and a
+ * better one than a date nobody believes.
+ */
+export async function postponeVisit(
+  visitId: string,
+  jobId: string,
+  formData: FormData,
+): Promise<void> {
+  await requireAdmin();
+
+  const rawReason = String(formData.get('postponeReason') ?? '').trim();
+  if (!isPostponeReason(rawReason)) {
+    redirect(`/admin/board/${jobId}?error=postpone#visits`);
+  }
+
+  const note = String(formData.get('postponeNote') ?? '').trim().slice(0, 500);
+  const rawNewDate = String(formData.get('newDate') ?? '').trim();
+  const newDate = DATE_RE.test(rawNewDate) ? rawNewDate : null;
+  const newTime = String(formData.get('newTime') ?? '').trim() || '09:00';
+
+  const visit = await prisma.visit.findUnique({
+    where: { id: visitId },
+    select: { placeId: true, status: true },
+  });
+  if (!visit) redirect(`/admin/board/${jobId}`);
+
+  // Status in the WHERE: postponing twice must not send two emails.
+  const { count } = await prisma.visit.updateMany({
+    where: { id: visitId, status: 'planned' },
+    data: { status: 'postponed', postponeReason: rawReason, postponeNote: note || null },
+  });
+  if (count === 0) redirect(`/admin/board/${jobId}#visits`);
+
+  if (newDate) {
+    await prisma.visit.create({
+      data: {
+        bookingId: jobId,
+        placeId: visit.placeId,
+        startsAt: londonDateTimeToUtc(newDate, TIME_RE.test(newTime) ? newTime : '09:00'),
+        status: 'planned',
+      },
+    });
+  }
+
+  await prisma.booking.update({
+    where: { id: jobId },
+    data: { plannedOn: newDate },
+  });
+
+  // Committed. Now tell them.
+  await sendVisitPostponedEmail(visitId, newDate);
+
+  revalidatePath('/admin/board');
+  redirect(`/admin/board/${jobId}?postponed=1#visits`);
 }

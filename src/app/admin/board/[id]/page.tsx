@@ -17,8 +17,20 @@ import { cardTitle } from '@/lib/board';
 import { buildTimeline } from '@/lib/timeline';
 import { DecidedViaField } from '@/components/admin/board/decided-via';
 import { formatPence } from '@/lib/money';
-import { DECIDED_VIA_LABEL, DECIDED_VIA_PLAIN, type DecidedVia } from '@/lib/enums';
 import {
+  DECIDED_VIA_LABEL,
+  DECIDED_VIA_PLAIN,
+  POSTPONE_REASON,
+  POSTPONE_REASON_LABEL,
+  type DecidedVia,
+  type PostponeReason,
+} from '@/lib/enums';
+import {
+  addPartOrder,
+  markPartArrived,
+  markVisitDone,
+  planVisit,
+  postponeVisit,
   raiseVariation,
   recordEstimateDecision,
   recordVariationDecision,
@@ -27,6 +39,7 @@ import {
   daysBetween,
   formatDateShort,
   formatLondonDateShort,
+  formatTime,
   londonDateString,
   todayInLondon,
 } from '@/lib/time';
@@ -58,10 +71,17 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
       variations: { orderBy: { createdAt: 'desc' } },
       estimates: { orderBy: { createdAt: 'desc' } },
       lineItems: { orderBy: { sortOrder: 'asc' } },
+      partOrders: { orderBy: [{ arrivedOn: 'asc' }, { etaOn: 'asc' }] },
+      visits: { orderBy: { startsAt: 'desc' }, include: { place: { select: { name: true } } } },
       emailLogs: { orderBy: { createdAt: 'desc' }, take: 20 },
     },
   });
   if (!job) notFound();
+
+  const places = await prisma.place.findMany({
+    orderBy: { sortOrder: 'asc' },
+    select: { id: true, name: true },
+  });
 
   const today = todayInLondon();
   const column = job.column as JobColumn;
@@ -80,6 +100,17 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
   const awaiting = job.variations.filter((v) => v.status === 'awaiting_owner');
   const settled = job.variations.filter((v) => v.status !== 'awaiting_owner');
   const timeline = buildTimeline(job);
+
+  const outstandingParts = job.partOrders.filter((p) => p.arrivedOn == null);
+  const plannedVisit = job.visits.find((v) => v.status === 'planned');
+  // The last part landing is the moment this card stops being stuck. The app
+  // OFFERS the move and never makes it: only the trade knows whether the tide,
+  // the crane and their own week also line up.
+  const partsAllIn =
+    job.column === 'waiting' &&
+    job.waitingReason === 'parts' &&
+    job.partOrders.length > 0 &&
+    outstandingParts.length === 0;
 
   return (
     <AdminShell>
@@ -348,6 +379,297 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
           Sort this into a job
         </Link>
       )}
+
+      {/* ---- Parts ---- */}
+      <section id="parts" className="mt-8">
+        <h2 className="k border-b border-divider pb-2">Parts on order</h2>
+
+        {partsAllIn && (
+          <Plate className="mt-3 bg-accent-100 p-3">
+            <p className="text-[14px] font-semibold">Everything is in.</p>
+            <p className="mt-1 text-[13.5px]">
+              Nothing is outstanding on this job any more. Move it out of Waiting?
+            </p>
+            <form action={moveJob.bind(null, job.id)} className="mt-3">
+              <input type="hidden" name="column" value="on_it" />
+              <button
+                type="submit"
+                className="k min-h-12 bg-accent-900 px-4 text-bg hover:bg-ink"
+              >
+                Move to On it
+              </button>
+            </form>
+          </Plate>
+        )}
+
+        {job.partOrders.length > 0 && (
+          <ul className="mt-3 space-y-2">
+            {job.partOrders.map((p) => {
+              const late = p.arrivedOn == null && p.etaOn != null && p.etaOn < today;
+              return (
+                <li key={p.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13.5px]">
+                  <span className={p.arrivedOn ? 'muted' : 'font-semibold'}>{p.item}</span>
+                  {p.supplier && <span className="k muted">{p.supplier}</span>}
+
+                  {p.arrivedOn ? (
+                    <span className="k muted">arrived {formatLondonDateShort(p.arrivedOn)}</span>
+                  ) : (
+                    <>
+                      <span className={`k ${late ? 'font-bold text-accent-800' : 'muted'}`}>
+                        {p.etaOn ? `eta ${formatLondonDateShort(p.etaOn)}` : 'no eta'}
+                        {late ? ' · late' : ''}
+                      </span>
+                      <form action={markPartArrived.bind(null, p.id, job.id)}>
+                        <button
+                          type="submit"
+                          className="k min-h-11 border border-divider px-3 hover:bg-neutral-200"
+                        >
+                          It&rsquo;s here
+                        </button>
+                      </form>
+                    </>
+                  )}
+                  {p.costPence != null && (
+                    <span className="numeric ml-auto">{formatPence(p.costPence)}</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        <form action={addPartOrder.bind(null, job.id)} className="mt-4 border border-divider p-3">
+          <p className="k">Order a part</p>
+          {params.error === 'part' && (
+            <p className="mt-2 text-[13.5px] font-semibold text-accent-800">
+              Needs at least what the part is.
+            </p>
+          )}
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor="item" className="k block muted">What</label>
+              <input
+                id="item"
+                name="item"
+                type="text"
+                placeholder="Cutless bearing 25mm"
+                className="mt-1 min-h-12 w-full border border-divider bg-bg px-2 text-[15px]"
+              />
+            </div>
+            <div>
+              <label htmlFor="supplier" className="k block muted">Supplier</label>
+              <input
+                id="supplier"
+                name="supplier"
+                type="text"
+                className="mt-1 min-h-12 w-full border border-divider bg-bg px-2 text-[15px]"
+              />
+            </div>
+            <div>
+              <label htmlFor="etaOn" className="k block muted">Expected</label>
+              <input
+                id="etaOn"
+                name="etaOn"
+                type="date"
+                className="mt-1 min-h-12 w-full border border-divider bg-bg px-2 text-[15px]"
+              />
+            </div>
+            <div>
+              <label htmlFor="cost" className="k block muted">&pound; (optional)</label>
+              <input
+                id="cost"
+                name="cost"
+                type="text"
+                inputMode="decimal"
+                className="mt-1 min-h-12 w-full border border-divider bg-bg px-2 text-[15px]"
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            className="k mt-3 min-h-12 border border-ink px-4 hover:bg-neutral-200"
+          >
+            Add it
+          </button>
+        </form>
+      </section>
+
+      {/* ---- Visits ---- */}
+      <section id="visits" className="mt-8">
+        <h2 className="k border-b border-divider pb-2">Going down to her</h2>
+
+        {params.postponed === '1' && (
+          <p className="mt-3 border border-divider bg-neutral-100 p-3 text-[13.5px]">
+            Owner emailed.
+          </p>
+        )}
+
+        {job.visits.length > 0 && (
+          <ul className="mt-3 space-y-2">
+            {job.visits.map((v) => (
+              <li key={v.id} className="flex flex-wrap items-baseline gap-x-3 text-[13.5px]">
+                <span className={v.status === 'postponed' ? 'muted line-through' : 'font-semibold'}>
+                  {formatDateShort(v.startsAt)} {formatTime(v.startsAt)}
+                </span>
+                {v.place && <span className="k muted">{v.place.name}</span>}
+                <span className="k muted">{v.status}</span>
+                {v.postponeReason && (
+                  <span className="k muted">
+                    {POSTPONE_REASON_LABEL[v.postponeReason as PostponeReason] ?? v.postponeReason}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {plannedVisit ? (
+          <div className="mt-4 border border-divider p-3">
+            <p className="k">
+              Next: {formatDateShort(plannedVisit.startsAt)} {formatTime(plannedVisit.startsAt)}
+            </p>
+
+            <form action={markVisitDone.bind(null, plannedVisit.id, job.id)} className="mt-3">
+              <button
+                type="submit"
+                className="k min-h-12 border border-ink px-4 hover:bg-neutral-200"
+              >
+                That&rsquo;s done
+              </button>
+            </form>
+
+            {/* The email is the point. A slipped date nobody mentions is the
+                complaint this whole feature exists to stop. */}
+            <form
+              action={postponeVisit.bind(null, plannedVisit.id, job.id)}
+              className="mt-4 border-t border-divider pt-3"
+            >
+              <p className="k">Not going to make it?</p>
+              <p className="mt-1 text-[13px] muted">
+                Emails the owner the reason and a new date, or tells them we&rsquo;ll be in touch.
+              </p>
+
+              {params.error === 'postpone' && (
+                <p className="mt-2 text-[13.5px] font-semibold text-accent-800">
+                  Pick a reason — the owner is going to ask.
+                </p>
+              )}
+
+              <fieldset className="mt-3">
+                <legend className="sr-only">Why</legend>
+                <div className="flex flex-wrap gap-2">
+                  {POSTPONE_REASON.map((r) => (
+                    <label
+                      key={r}
+                      className="k flex min-h-11 cursor-pointer items-center gap-2 border border-divider px-3 has-[:checked]:border-accent-700 has-[:checked]:bg-accent-100"
+                    >
+                      <input
+                        type="radio"
+                        name="postponeReason"
+                        value={r}
+                        required
+                        className="accent-accent-700"
+                      />
+                      {POSTPONE_REASON_LABEL[r as PostponeReason]}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <label htmlFor="postponeNote" className="k mt-3 block muted">
+                Anything to add
+              </label>
+              <input
+                id="postponeNote"
+                name="postponeNote"
+                type="text"
+                placeholder="Forecast 30kt gusting 40 — the crane will not lift in that"
+                className="mt-1 min-h-11 w-full border border-divider bg-bg px-2 text-[14px]"
+              />
+
+              <div className="mt-3 flex flex-wrap items-end gap-3">
+                <div>
+                  <label htmlFor="newDate" className="k block muted">New date (optional)</label>
+                  <input
+                    id="newDate"
+                    name="newDate"
+                    type="date"
+                    className="mt-1 min-h-12 border border-divider bg-bg px-2 text-[15px]"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="newTime" className="k block muted">Time</label>
+                  <input
+                    id="newTime"
+                    name="newTime"
+                    type="time"
+                    defaultValue="09:00"
+                    className="mt-1 min-h-12 border border-divider bg-bg px-2 text-[15px]"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="k mt-4 min-h-14 w-full border border-ink px-6 hover:bg-neutral-200 sm:w-auto"
+              >
+                Postpone and tell them
+              </button>
+            </form>
+          </div>
+        ) : (
+          <form action={planVisit.bind(null, job.id)} className="mt-4 border border-divider p-3">
+            <p className="k">Put a day in</p>
+            {params.error === 'visit' && (
+              <p className="mt-2 text-[13.5px] font-semibold text-accent-800">
+                Needs a date.
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <div>
+                <label htmlFor="date" className="k block muted">Date</label>
+                <input
+                  id="date"
+                  name="date"
+                  type="date"
+                  className="mt-1 min-h-12 border border-divider bg-bg px-2 text-[15px]"
+                />
+              </div>
+              <div>
+                <label htmlFor="time" className="k block muted">Time</label>
+                <input
+                  id="time"
+                  name="time"
+                  type="time"
+                  defaultValue="09:00"
+                  className="mt-1 min-h-12 border border-divider bg-bg px-2 text-[15px]"
+                />
+              </div>
+              <div>
+                <label htmlFor="visitPlace" className="k block muted">Where</label>
+                <select
+                  id="visitPlace"
+                  name="placeId"
+                  className="mt-1 min-h-12 border border-divider bg-bg px-2 text-[15px]"
+                >
+                  <option value="">Where the boat is</option>
+                  {places.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <button
+              type="submit"
+              className="k mt-3 min-h-12 border border-ink px-4 hover:bg-neutral-200"
+            >
+              Plan it
+            </button>
+          </form>
+        )}
+      </section>
 
       <h2 className="k mt-8 border-b border-divider pb-2">Move to</h2>
       <div className="mt-4 flex flex-wrap gap-2">
