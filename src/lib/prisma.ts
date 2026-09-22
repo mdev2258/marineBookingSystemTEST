@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
-// Next dev does hot-module reloads; without the global cache each reload opens a
-// fresh pool and SQLite starts throwing "database is locked".
+// Next dev does hot-module reloads; without the global cache each reload opens
+// a fresh pool and the Postgres connection limit is gone within a few saves.
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 export const prisma =

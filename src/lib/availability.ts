@@ -77,8 +77,8 @@ export async function spacesLeft(
 /**
  * The last-place re-check. Called immediately before a job is scheduled into a
  * slot. Deliberately not locked -- an unlucky simultaneous double-book is
- * acceptable for a demo, and a SQLite transaction would not survive the move to
- * Postgres unchanged anyway.
+ * acceptable for a demo. Postgres could hold a real lock here; doing so is a
+ * production concern and nothing on the board reads this path.
  */
 export async function hasRoom(
   session: { id: string; capacity: number },

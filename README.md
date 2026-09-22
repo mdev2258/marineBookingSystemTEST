@@ -90,7 +90,7 @@ scope, so a deployment needs a redeploy and not just an env-var change.
 ```bash
 npm install
 cp .env.example .env      # then fill in the values below
-npm run db:push           # create the SQLite database from the schema
+npm run db:push           # create the tables from the schema
 npm run seed              # fill it with a realistic board
 npm run dev
 ```
@@ -180,7 +180,8 @@ Copy `.env.example` to `.env`. Every variable:
 
 | Variable | What it is |
 |---|---|
-| `DATABASE_URL` | `file:./dev.db` locally. A Postgres connection string in production — **see the deploy note below, it is not only this variable.** |
+| `DATABASE_URL` | The **pooled** Postgres connection string, used by the running app. Append `?pgbouncer=true&connection_limit=1`. |
+| `DIRECT_URL` | The **direct** Postgres connection string for the same database. `prisma db push` and the seed need a real session and cannot go through the pooler. Miss this and schema pushes hang or fail. |
 | `ADMIN_USERNAME` | There is no user table. This and the password below *are* the admin account. |
 | `ADMIN_PASSWORD` | As above. Change it from the example value. |
 | `AUTH_SECRET` | Signing key for the admin session cookie. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
@@ -231,20 +232,31 @@ purpose.
 
 ## Deploying to Vercel
 
-1. Create a Postgres database (Neon, Supabase, Vercel Postgres — any of them).
-2. Set `DATABASE_URL` to its connection string.
-3. **Edit `prisma/schema.prisma` and change `provider = "sqlite"` to
-   `provider = "postgresql"`.** Prisma 6 does not allow `env()` for the
-   provider, so this is a real one-line code change and not just an environment
-   variable. Missing it is the most likely thing to go wrong on deploy night.
-4. Set every other variable from the table above in the Vercel project.
-5. Deploy, then run `npx prisma db push` against the production database.
+1. Create a Postgres database — Neon, Supabase, Vercel Postgres, any of them.
+2. Set `DATABASE_URL` to its **pooled** connection string (with
+   `?pgbouncer=true&connection_limit=1`) and `DIRECT_URL` to its **direct**
+   one. Both, always. The app runs through the pooler because every serverless
+   invocation opens a connection; `prisma db push` and the seed cannot, because
+   they need a real session.
+3. Set every other variable from the table above in the Vercel project.
+4. Deploy. `vercel-build` runs `prisma db push` for you, but **only when
+   `VERCEL_ENV=production`** — a preview deployment must never reshape the
+   database the live install is using. Give previews their own branch of the
+   database if you want them to run at all.
 
-There is no `migrations/` folder on purpose. Migration SQL is dialect-specific,
-and a migration generated against SQLite will not apply to Postgres. Both
-environments are created with `prisma db push` from the same schema.
+`db push` is used rather than migrations because nothing here holds real data
+yet. The moment install #1 holds a trade's actual job book, adopt
+`prisma migrate`: baseline the existing database into an initial migration and
+change `vercel-build` to `prisma migrate deploy`. Deferring costs nothing;
+running `db push` against a database someone depends on eventually will not.
 
-`vercel.json` registers the reminder cron at 17:00 UTC.
+There is no SQLite mode. Demos are given from a deployed URL, so Postgres was
+already the dialect every demo and every customer ran on — keeping SQLite for
+local dev only meant the path that shipped was the one nobody exercised.
+Local dev points at its own branch of the same Postgres.
+
+`vercel.json` registers the reminder cron at 17:00 UTC, which is 18:00 London
+in summer and 17:00 in winter. Vercel crons are UTC-only.
 
 ## Windows notes
 

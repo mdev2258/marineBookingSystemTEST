@@ -132,8 +132,9 @@ export async function requestSlot(
     return { error: 'Sorry — that slot filled up. Please pick another.' };
   }
 
-  // Email is stored lowercased and matched exactly. mode:'insensitive' is
-  // Postgres-only and throws on SQLite.
+  // Email is stored lowercased and matched exactly. mode:'insensitive' works
+  // now that this is Postgres, but exact-match on a lowercased column uses the
+  // unique index and a case-insensitive match does not. Leave it.
   const customer = await prisma.customer.upsert({
     where: { operatorId_email: { operatorId: session.operatorId, email } },
     update: { name, phone },

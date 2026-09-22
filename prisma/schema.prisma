@@ -1,15 +1,23 @@
 // Marine Booking — demo schema.
 //
-// PORTABILITY RULES (SQLite local <-> Postgres on Vercel). Do not break these:
+// ONE DIALECT: Postgres, everywhere. Local dev, the demo and every customer
+// install all run the same database. There is no SQLite path any more -- demos
+// are given from a deployed URL, so Postgres was already the only dialect that
+// mattered, and keeping SQLite meant the untested path was the one that shipped.
+//
+// The rules below are HISTORICAL. They existed to keep one schema working on
+// both dialects, and nothing enforces them now:
 //   * No `enum` blocks     -> String columns + TS unions in src/lib/enums.ts
 //   * No `@db.*` native types
 //   * No `Decimal`         -> Int pence everywhere
 //   * No `Json`
-//   * No `migrations/`     -> `prisma db push` on BOTH environments
+// Leave them be. Converting the String unions to real enums is a very large
+// diff for zero behaviour. Int pence is right on any dialect.
 //
-// The provider below is NOT env-swappable (Prisma 6 disallows env() here).
-// Deploying to Postgres = set DATABASE_URL *and* change this one line.
-// See README > Deploying to Vercel.
+// STILL no `migrations/` -- `prisma db push` on every environment. That is a
+// deliberate deferral, not a rule: nothing here holds real data yet. The day
+// install #1 holds a trade's actual job book, adopt `prisma migrate` and
+// baseline the existing database into an initial migration.
 //
 // CALENDAR DATES ARE STRINGS. A field that means "a day" and not "an instant"
 // is a String holding "yyyy-MM-dd" (the LondonDate type in src/lib/time.ts).
@@ -36,8 +44,15 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider = "postgresql"
+
+  // Pooled connection (pgbouncer). Every serverless invocation wants a
+  // connection; without the pooler the first real day of use exhausts them.
+  url = env("DATABASE_URL")
+
+  // Direct connection. `prisma db push`, `migrate` and the seed need a real
+  // session and cannot go through the pooler.
+  directUrl = env("DIRECT_URL")
 }
 
 /// The trade business. One row. Was the yard/operator; now the shipwright or

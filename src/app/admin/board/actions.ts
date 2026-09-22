@@ -53,9 +53,12 @@ export async function createJot(formData: FormData): Promise<void> {
  * creates the boat rather than refusing the save (§3.3) -- the trade is
  * standing in an engine bay, not doing data entry.
  *
- * Deliberately not `mode: 'insensitive'`: that is Postgres-only and throws on
- * SQLite. Names are matched exactly as typed, and a near-duplicate is a
- * tidy-up job for later, not a reason to block the save now.
+ * Not `mode: 'insensitive'`. That is now available -- this is Postgres in
+ * every environment -- so this is a choice and no longer a limitation: names
+ * are matched exactly as typed, and a near-duplicate boat is a tidy-up job for
+ * later, not a reason to block the save now. Turning it on would silently
+ * merge "Sea Breeze" and "sea breeze", which is right more often than not but
+ * is a behaviour change, not a cleanup.
  */
 async function findOrCreateVessel(name: string, opId: string): Promise<string | null> {
   const clean = name.trim();

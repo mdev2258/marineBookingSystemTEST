@@ -42,8 +42,12 @@ reasons to build it rather than sell them Tradify:
 
 ## 1. Prisma data model
 
-**Global rules for dialect portability** (SQLite dev <-> Postgres prod). These
-survive from the previous plan unchanged and still bite:
+**Global rules for dialect portability** (SQLite dev <-> Postgres prod).
+
+> **SUPERSEDED.** The app runs Postgres in every environment now — see
+> `prisma/schema.prisma` and README > Deploying to Vercel. None of the rows
+> below are still enforced. They are kept because they explain why the schema
+> looks the way it does, and none of them are worth undoing.
 
 | Avoid | Use instead | Why |
 |---|---|---|
