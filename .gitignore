@@ -51,3 +51,4 @@ prisma/dev.db*
 # local env
 .env
 .env.local
+.neon
