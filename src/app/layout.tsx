@@ -20,7 +20,7 @@ const barlowCondensed = Barlow_Condensed({
 // The demo operator is the default because most routes are theirs. The
 // marketing page at / is the freelancer's own business and overrides this.
 export const metadata: Metadata = {
-  title: "Harbourside Marine",
+  title: "Harbourside Marine Services",
   description: "Boatyard and marine services in Lymington: liftouts, surveys, rigging and repair.",
 };
 

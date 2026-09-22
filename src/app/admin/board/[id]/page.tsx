@@ -17,7 +17,7 @@ import { cardTitle } from '@/lib/board';
 import { buildTimeline } from '@/lib/timeline';
 import { DecidedViaField } from '@/components/admin/board/decided-via';
 import { formatPence } from '@/lib/money';
-import { DECIDED_VIA_LABEL, type DecidedVia } from '@/lib/enums';
+import { DECIDED_VIA_LABEL, DECIDED_VIA_PLAIN, type DecidedVia } from '@/lib/enums';
 import {
   raiseVariation,
   recordEstimateDecision,
@@ -71,6 +71,12 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
   const badVariation = params.error === 'variation';
 
   const liveEstimate = job.estimates.find((e) => e.status === 'sent');
+  // The last one the owner actually answered. Without this, a job whose
+  // estimate was accepted reads "nothing sent yet" -- which is not merely
+  // untidy, it is the screen telling the trade the opposite of what happened.
+  const decidedEstimate = job.estimates.find(
+    (e) => e.status === 'accepted' || e.status === 'declined',
+  );
   const awaiting = job.variations.filter((v) => v.status === 'awaiting_owner');
   const settled = job.variations.filter((v) => v.status !== 'awaiting_owner');
   const timeline = buildTimeline(job);
@@ -181,6 +187,29 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
                 </button>
               </div>
             </form>
+          </div>
+        ) : decidedEstimate ? (
+          <div className="mt-3">
+            <p className="text-[15px]">
+              <span className="numeric text-xl">{formatPence(decidedEstimate.totalPence)}</span>{' '}
+              <span className="muted">
+                {decidedEstimate.status === 'accepted' ? 'agreed' : 'declined'}
+                {decidedEstimate.decidedVia
+                  ? ` ${DECIDED_VIA_PLAIN[decidedEstimate.decidedVia as DecidedVia]}`
+                  : ''}
+              </span>
+            </p>
+            {decidedEstimate.decisionNote && (
+              <p className="mt-1 text-[13.5px] muted">
+                &ldquo;{decidedEstimate.decisionNote}&rdquo;
+              </p>
+            )}
+            {/* Lines can be edited after acceptance -- that is how extra work
+                gets ticked off -- so say plainly that the agreed figure is the
+                snapshot and not whatever the list adds up to now. */}
+            <p className="mt-2 text-[12.5px] muted">
+              That is the figure they agreed. Editing lines does not change it.
+            </p>
           </div>
         ) : (
           <p className="mt-3 text-[13.5px] muted">

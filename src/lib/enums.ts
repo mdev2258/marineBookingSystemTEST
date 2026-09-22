@@ -258,6 +258,19 @@ export const DECIDED_VIA_LABEL: Record<DecidedVia, string> = {
   text: 'Agreed by text',
 };
 
+/**
+ * The same thing as a bare phrase, for sentences that supply their own verb:
+ * "agreed by phone", "declined in person". DECIDED_VIA_LABEL carries "Agreed"
+ * inside it, which reads as "agreed — agreed by phone" when a caller has
+ * already said it.
+ */
+export const DECIDED_VIA_PLAIN: Record<DecidedVia, string> = {
+  link: 'by link',
+  phone: 'by phone',
+  in_person: 'in person',
+  text: 'by text',
+};
+
 export function isDecidedVia(v: string): v is DecidedVia {
   return (DECIDED_VIA as readonly string[]).includes(v);
 }
