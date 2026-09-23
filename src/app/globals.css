@@ -32,8 +32,10 @@
   --color-neutral-200: #e7e7ea;
   --color-neutral-300: #d4d4d7;
   --color-neutral-400: #b7b7ba;
-  --color-neutral-500: #98989b;
-  --color-neutral-600: #7a7a7d;
+  /* 500 and 600 are only ever used as secondary TEXT, so they are darkened
+     to clear 4.5:1 on bg and surface (WCAG 1.4.3); was #98989b / #7a7a7d. */
+  --color-neutral-500: #68686b;
+  --color-neutral-600: #636366;
   --color-neutral-700: #5d5d60;
   --color-neutral-800: #424244;
   --color-neutral-900: #2b2b2d;
@@ -45,9 +47,16 @@
   --color-brand-100: #d6ebff;
   --color-brand-200: #b5d9fd;
   --color-brand-500: #749dc4;
-  --color-brand-600: #5980a6;
-  --color-brand-700: #416180;
+  /* brand-600 is the filled-button colour: white on the old mid-steel was
+     4.1:1, so it points one step darker (accent-700, 6.5:1) and hover keeps
+     its one-step darkening. */
+  --color-brand-600: #416180;
+  --color-brand-700: #2c455d;
   --color-brand-800: #2c455d;
+
+  /* Form-control edge. Hairline stays 1px but must reach 3:1 against the
+     page (WCAG 1.4.11); the divider mix is only 1.4:1. */
+  --color-field-border: #858588;
 
   --font-sans: var(--font-barlow), ui-sans-serif, system-ui, sans-serif;
   --font-condensed: var(--font-barlow-condensed), ui-sans-serif, system-ui, sans-serif;
@@ -86,6 +95,25 @@ input,
 select,
 textarea {
   font-size: 16px;
+}
+
+/* Unlayered, so it beats every border-divider / border-neutral-300 utility on
+   a field at once instead of hunting them down per form. */
+input:not([type="radio"], [type="checkbox"], [type="hidden"], [type="range"]),
+select,
+textarea {
+  border-color: var(--color-field-border);
+}
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--color-accent-700);
+}
+
+/* The JOT button is fixed bottom-right on every admin screen; this keeps a
+   field scrolled into view by focus from landing underneath it (2.4.11). */
+html {
+  scroll-padding-bottom: 6rem;
 }
 
 /* System-defined focus. Never the browser default. */
@@ -149,7 +177,7 @@ textarea {
 .k {
   font-family: var(--font-condensed);
   font-weight: 600;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1;
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -173,12 +201,13 @@ textarea {
 
 /* Muted body text, per the system's mix rather than a grey token. */
 .muted {
-  color: color-mix(in srgb, var(--color-ink) 58%, transparent);
+  color: color-mix(in srgb, var(--color-ink) 72%, transparent);
 }
 
 /* ── Overdue card ────────────────────────────────────────────────────────
-   A waiting card whose date has passed flashes, so nothing rots in the
-   Waiting column. Slow and low-contrast on purpose: this is a nag on a
+   A waiting card whose date has passed flashes three times on load, then
+   holds the dark border (WCAG 2.2.2: nothing blinks past five seconds). The
+   card also says "Overdue" in words, so colour is never the only signal. Slow and low-contrast on purpose: this is a nag on a
    working screen, not an alarm, and forty of them at once must still be
    readable. */
 @keyframes flash {
@@ -188,13 +217,29 @@ textarea {
 
 .flash {
   border-color: var(--color-accent-700);
-  animation: flash 1.8s ease-in-out infinite;
+  animation: flash 1.6s ease-in-out 3;
 }
 
 /* Someone who has asked the OS for less motion still needs to see which card
    is overdue -- so the colour stays and only the animation goes. */
 @media (prefers-reduced-motion: reduce) {
   .flash { animation: none; }
+}
+
+/* ── Desktop board width ─────────────────────────────────────────────────
+   Eight fixed 16rem columns made the board ~2160px, so Done and Invoiced sat
+   off-screen on a 1366-1440px laptop. The columns now share the width, from
+   9rem up to their old 16rem, so all eight fit from ~1300px; narrower than
+   that the row still scrolls. Keyed on the board's own utility classes
+   because this file cannot touch the page -- give the <section> a real class
+   (e.g. `board-col`) and swap the selector when that page is next edited. */
+@media (min-width: 48rem) {
+  .md\:overflow-x-auto > section.md\:w-64 {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 9rem;
+    max-width: 16rem;
+  }
 }
 
 /* ── Printable records ───────────────────────────────────────────────────

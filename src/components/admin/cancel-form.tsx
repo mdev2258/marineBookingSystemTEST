@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import type { CancelState } from '@/app/admin/sessions/actions';
 import { CANCELLATION_REASON, CANCELLATION_REASON_LABEL } from '@/lib/enums';
 
@@ -17,25 +17,30 @@ export function CancelForm({
   affected: number;
 }) {
   const [state, formAction, pending] = useActionState<CancelState, FormData>(action, {});
+  // Controlled, so React's post-action form reset keeps the choice and the
+  // typed note when the action comes back with an error.
+  const [reason, setReason] = useState<string>(CANCELLATION_REASON[0]);
+  const [note, setNote] = useState('');
 
   return (
     <form action={formAction} className="space-y-6">
-      <fieldset>
+      <fieldset aria-describedby={state.error ? 'cancel-error' : undefined}>
         <legend className="mb-3 font-medium">Why is it off?</legend>
         <div className="grid gap-3 sm:grid-cols-2">
-          {CANCELLATION_REASON.map((reason, i) => (
+          {CANCELLATION_REASON.map((r) => (
             <label
-              key={reason}
+              key={r}
               className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border-2 border-neutral-300 p-4 font-semibold hover:border-brand-500 has-checked:border-brand-600 has-checked:bg-brand-50"
             >
               <input
                 type="radio"
                 name="reason"
-                value={reason}
-                defaultChecked={i === 0}
+                value={r}
+                checked={reason === r}
+                onChange={() => setReason(r)}
                 className="h-5 w-5"
               />
-              {CANCELLATION_REASON_LABEL[reason]}
+              {CANCELLATION_REASON_LABEL[r]}
             </label>
           ))}
         </div>
@@ -50,6 +55,8 @@ export function CancelForm({
           name="note"
           rows={3}
           maxLength={500}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
           placeholder="Force 6 gusting 7 in the Solent"
           className="w-full rounded-md border border-neutral-300 bg-white px-3 py-3 text-ink focus:border-brand-600 focus:outline-2 focus:outline-offset-2 focus:outline-brand-600"
         />
@@ -57,7 +64,7 @@ export function CancelForm({
       </div>
 
       {state.error && (
-        <p role="alert" className="text-sm font-medium text-red-700">
+        <p id="cancel-error" role="alert" className="text-sm font-medium text-red-700">
           {state.error}
         </p>
       )}

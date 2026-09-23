@@ -39,17 +39,19 @@ export function BoardCard({ card, today }: { card: BoardCard; today: string }) {
             {isJot ? 'No boat yet' : card.vessel?.name}
           </p>
           {awaitingOwner && (
-            <span
-              className="mt-1.5 h-2.5 w-2.5 shrink-0 bg-accent-700"
-              title="Extra work awaiting the owner"
-              aria-label="Extra work awaiting the owner"
-            />
+            // aria-label on a bare span is ignored by screen readers; real
+            // (visually hidden) text becomes part of the link's name.
+            <span className="mt-1.5 h-2.5 w-2.5 shrink-0 bg-accent-700" title="Extra work awaiting the owner">
+              <span className="sr-only">Extra work awaiting the owner</span>
+            </span>
           )}
         </div>
 
         <p className="mt-1 text-[13.5px] leading-snug">{cardTitle(card)}</p>
 
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+          {/* The flashing border stops after three pulses; the word does not. */}
+          {overdue && <span className="k font-bold text-accent-800">Overdue</span>}
           {card.place && <span className="k muted">{card.place.shortName}</span>}
 
           {card.column === 'waiting' && card.waitingReason && (

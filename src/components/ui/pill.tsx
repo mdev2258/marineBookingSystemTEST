@@ -11,14 +11,14 @@ export type PillTone = 'ok' | 'now' | 'due';
 
 const TONE: Record<PillTone, string> = {
   ok: 'bg-accent-100 text-accent-700',
-  now: 'bg-accent text-bg',
+  now: 'bg-accent-700 text-bg',
   due: 'bg-neutral-200 text-neutral-700',
 };
 
 export function Pill({ tone, children }: { tone: PillTone; children: React.ReactNode }) {
   return (
     <span
-      className={`${TONE[tone]} inline-block shrink-0 px-2 py-1 font-condensed text-[9px] font-semibold uppercase leading-none tracking-[0.1em]`}
+      className={`${TONE[tone]} inline-block shrink-0 px-2 py-1 font-condensed text-[11px] font-semibold uppercase leading-none tracking-[0.1em]`}
     >
       {children}
     </span>
@@ -54,7 +54,7 @@ export function JobPill({ status }: { status: string }) {
 export function PaymentState({ label, settled }: { label: string; settled: boolean }) {
   return (
     <span
-      className={`font-condensed text-[9px] font-semibold uppercase leading-none tracking-[0.08em] ${
+      className={`font-condensed text-[11px] font-semibold uppercase leading-none tracking-[0.08em] ${
         settled ? 'text-accent-700' : 'text-neutral-600'
       }`}
     >

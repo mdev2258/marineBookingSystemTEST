@@ -25,6 +25,9 @@ export function LoginForm({ next }: { next: string }) {
           autoCapitalize="none"
           autoCorrect="off"
           required
+          defaultValue={state.username}
+          aria-invalid={!!state.error}
+          aria-describedby={state.error ? 'login-error' : undefined}
           className={field}
         />
       </div>
@@ -39,12 +42,14 @@ export function LoginForm({ next }: { next: string }) {
           type="password"
           autoComplete="current-password"
           required
+          aria-invalid={!!state.error}
+          aria-describedby={state.error ? 'login-error' : undefined}
           className={field}
         />
       </div>
 
       {state.error && (
-        <p role="alert" className="text-sm font-medium text-red-700">
+        <p id="login-error" role="alert" className="text-sm font-medium text-red-700">
           {state.error}
         </p>
       )}
@@ -52,7 +57,7 @@ export function LoginForm({ next }: { next: string }) {
       <button
         type="submit"
         disabled={pending}
-        className="min-h-12 w-full rounded-md bg-brand-600 px-5 font-semibold text-white hover:bg-brand-700 focus:outline-2 focus:outline-offset-2 focus:outline-brand-600 disabled:opacity-60"
+        className="min-h-12 w-full bg-brand-600 px-6 font-condensed font-semibold uppercase tracking-[0.08em] text-white hover:bg-brand-700 disabled:opacity-60"
       >
         {pending ? 'Signing in…' : 'Sign in'}
       </button>

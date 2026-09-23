@@ -120,7 +120,7 @@ export function ContactForm() {
       <button
         type="submit"
         disabled={pending}
-        className="min-h-12 w-full rounded-md bg-brand-600 px-5 font-semibold text-white hover:bg-brand-700 focus:outline-2 focus:outline-offset-2 focus:outline-brand-600 disabled:opacity-60 sm:w-auto"
+        className="min-h-12 w-full bg-brand-600 px-6 font-condensed font-semibold uppercase tracking-[0.08em] text-white hover:bg-brand-700 focus:outline-2 focus:outline-offset-2 focus:outline-brand-600 disabled:opacity-60 sm:w-auto"
       >
         {pending ? 'Sending…' : 'Send enquiry'}
       </button>

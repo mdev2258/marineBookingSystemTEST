@@ -26,7 +26,7 @@ export async function requireAdmin(): Promise<void> {
   }
 }
 
-export type LoginState = { error?: string };
+export type LoginState = { error?: string; username?: string };
 
 export async function adminLogin(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const username = String(formData.get('username') ?? '').trim();
@@ -36,7 +36,9 @@ export async function adminLogin(_prev: LoginState, formData: FormData): Promise
   if (!credentialsAreValid(username, password)) {
     // One message for both cases: naming which half was wrong tells an attacker
     // when they have found a real username.
-    return { error: 'Those details were not recognised.' };
+    // The username comes back so React 19's post-action form reset does not
+    // clear it; the password deliberately does not.
+    return { error: 'Those details were not recognised.', username };
   }
 
   const store = await cookies();

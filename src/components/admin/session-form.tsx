@@ -15,9 +15,20 @@ const field =
   'w-full rounded-md border border-neutral-300 bg-white px-3 py-3 text-ink ' +
   'focus:border-brand-600 focus:outline-2 focus:outline-offset-2 focus:outline-brand-600';
 
-function Error({ message }: { message?: string }) {
+// Same shape as the public contact form: the field points at this by id
+// (aria-describedby) and role="alert" announces it when the action returns.
+function Error({ id, message }: { id: string; message?: string }) {
   if (!message) return null;
-  return <p className="mt-1.5 text-sm font-medium text-red-700">{message}</p>;
+  return (
+    <p id={id} role="alert" className="mt-1.5 text-sm font-medium text-red-700">
+      {message}
+    </p>
+  );
+}
+
+/** aria-invalid + aria-describedby for a field whose error has this id. */
+function invalid(message: string | undefined, id: string) {
+  return { 'aria-invalid': !!message, 'aria-describedby': message ? id : undefined };
 }
 
 /**
@@ -46,6 +57,12 @@ export function SessionForm({
 
   const [sessionTypeId, setSessionTypeId] = useState(initial.sessionTypeId);
   const [capacity, setCapacity] = useState(String(initial.capacity));
+  // Controlled, so React's post-action form reset cannot bin typed values
+  // when the action comes back with errors.
+  const [date, setDate] = useState(initial.date);
+  const [time, setTime] = useState(initial.time);
+  const [notes, setNotes] = useState(initial.notes);
+  const errors = state.errors ?? {};
 
   function chooseType(id: string) {
     setSessionTypeId(id);
@@ -67,6 +84,7 @@ export function SessionForm({
           name="sessionTypeId"
           value={sessionTypeId}
           onChange={(e) => chooseType(e.target.value)}
+          {...invalid(errors.sessionTypeId, 'sessionTypeId-error')}
           className={field}
         >
           <option value="">Choose…</option>
@@ -82,7 +100,7 @@ export function SessionForm({
             {selected.tideDependent ? ' Tidal — check the window before you publish it.' : ''}
           </p>
         )}
-        <Error message={state.errors?.sessionTypeId} />
+        <Error id="sessionTypeId-error" message={errors.sessionTypeId} />
       </div>
 
       <div className="grid gap-5 sm:grid-cols-2">
@@ -90,15 +108,31 @@ export function SessionForm({
           <label htmlFor="date" className="mb-1.5 block font-medium">
             Date
           </label>
-          <input id="date" name="date" type="date" defaultValue={initial.date} className={field} />
-          <Error message={state.errors?.date} />
+          <input
+            id="date"
+            name="date"
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            {...invalid(errors.date, 'date-error')}
+            className={field}
+          />
+          <Error id="date-error" message={errors.date} />
         </div>
         <div>
           <label htmlFor="time" className="mb-1.5 block font-medium">
             Start time
           </label>
-          <input id="time" name="time" type="time" defaultValue={initial.time} className={field} />
-          <Error message={state.errors?.time} />
+          <input
+            id="time"
+            name="time"
+            type="time"
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+            {...invalid(errors.time, 'time-error')}
+            className={field}
+          />
+          <Error id="time-error" message={errors.time} />
         </div>
       </div>
 
@@ -114,12 +148,13 @@ export function SessionForm({
           min={1}
           value={capacity}
           onChange={(e) => setCapacity(e.target.value)}
+          {...invalid(errors.capacity, 'capacity-error')}
           className={`${field} sm:max-w-40`}
         />
         <p className="mt-1.5 text-sm text-neutral-600">
           A crane takes one at a time; a surveyor might do two in a day.
         </p>
-        <Error message={state.errors?.capacity} />
+        <Error id="capacity-error" message={errors.capacity} />
       </div>
 
       <div>
@@ -130,7 +165,8 @@ export function SessionForm({
           id="notes"
           name="notes"
           maxLength={200}
-          defaultValue={initial.notes}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
           placeholder="HW Lymington 11:20"
           className={field}
         />

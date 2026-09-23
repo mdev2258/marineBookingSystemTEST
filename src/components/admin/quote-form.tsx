@@ -11,9 +11,15 @@ const field =
   'w-full border border-neutral-300 bg-white px-2.5 py-2.5 text-ink ' +
   'focus:border-accent focus:outline-2 focus:outline-offset-2 focus:outline-accent';
 
-function Err({ message }: { message?: string }) {
+// Same shape as the public contact form: the field points at this by id
+// (aria-describedby) and role="alert" announces it when the action returns.
+function Err({ id, message }: { id: string; message?: string }) {
   if (!message) return null;
-  return <p className="mt-1.5 text-sm font-medium text-red-700">{message}</p>;
+  return (
+    <p id={id} role="alert" className="mt-1.5 text-sm font-medium text-red-700">
+      {message}
+    </p>
+  );
 }
 
 const BLANK: LineDraft = { description: '', quantity: '', amount: '' };
@@ -37,6 +43,12 @@ export function QuoteForm({
   const [lines, setLines] = useState<LineDraft[]>(
     initialLines.length > 0 ? initialLines : [BLANK, BLANK],
   );
+  // Controlled, so React's post-action form reset cannot throw away a chosen
+  // slot or typed notes when the action comes back with errors.
+  const [sessionId, setSessionId] = useState(currentSessionId);
+  const [notes, setNotes] = useState(currentNotes);
+  const linesError = state.errors?.lines;
+  const sessionError = state.errors?.sessionId;
 
   // Live, so the yard sees the number it is about to send before it sends it.
   const total = lines.reduce((sum, line) => sum + (poundsToPence(line.amount) ?? 0), 0);
@@ -77,6 +89,8 @@ export function QuoteForm({
                 placeholder="Lift, wash and chock ashore"
                 className={`${field} flex-1`}
                 aria-label={`Line ${i + 1} description`}
+                aria-invalid={!!linesError}
+                aria-describedby={linesError ? 'quote-lines-error' : undefined}
               />
               <input
                 name="lineQuantity"
@@ -85,6 +99,8 @@ export function QuoteForm({
                 placeholder="1 set"
                 className={`${field} w-20 shrink-0`}
                 aria-label={`Line ${i + 1} quantity`}
+                aria-invalid={!!linesError}
+                aria-describedby={linesError ? 'quote-lines-error' : undefined}
               />
               <input
                 name="lineAmount"
@@ -94,6 +110,8 @@ export function QuoteForm({
                 placeholder="£"
                 className={`${field} w-24 shrink-0`}
                 aria-label={`Line ${i + 1} amount`}
+                aria-invalid={!!linesError}
+                aria-describedby={linesError ? 'quote-lines-error' : undefined}
               />
             </div>
           ))}
@@ -112,12 +130,22 @@ export function QuoteForm({
           </p>
         </div>
 
-        <Err message={state.errors?.lines} />
+        <Err id="quote-lines-error" message={linesError} />
       </div>
 
       <div>
-        <label className="mb-1.5 block text-sm font-medium">Book her in for</label>
-        <select name="sessionId" defaultValue={currentSessionId} className={field}>
+        <label htmlFor="quote-session" className="mb-1.5 block text-sm font-medium">
+          Book her in for
+        </label>
+        <select
+          id="quote-session"
+          name="sessionId"
+          value={sessionId}
+          onChange={(e) => setSessionId(e.target.value)}
+          aria-invalid={!!sessionError}
+          aria-describedby={sessionError ? 'quote-session-error' : undefined}
+          className={field}
+        >
           <option value="">Choose a slot…</option>
           {slots.map((s) => (
             <option key={s.id} value={s.id}>
@@ -125,16 +153,20 @@ export function QuoteForm({
             </option>
           ))}
         </select>
-        <Err message={state.errors?.sessionId} />
+        <Err id="quote-session-error" message={sessionError} />
       </div>
 
       <div>
-        <label className="mb-1.5 block text-sm font-medium">What the price covers</label>
+        <label htmlFor="quote-notes" className="mb-1.5 block text-sm font-medium">
+          What the price covers
+        </label>
         <textarea
+          id="quote-notes"
           name="quoteNotes"
           rows={3}
           maxLength={1000}
-          defaultValue={currentNotes}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
           placeholder="Lift, pressure wash, chock ashore. Excludes antifoul."
           className={field}
         />
@@ -150,7 +182,7 @@ export function QuoteForm({
       <button
         type="submit"
         disabled={pending}
-        className="min-h-12 w-full bg-accent px-5 font-semibold text-bg hover:bg-accent-600 disabled:opacity-60 sm:w-auto"
+        className="min-h-12 w-full bg-accent-700 px-5 font-semibold text-bg hover:bg-accent-800 disabled:opacity-60 sm:w-auto"
       >
         {pending ? 'Sending…' : alreadyQuoted ? 'Send a new quote' : 'Send quote'}
       </button>

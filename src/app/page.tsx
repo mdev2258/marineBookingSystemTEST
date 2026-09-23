@@ -143,7 +143,7 @@ export default function Home() {
                         </p>
                         <p className="text-xs leading-snug">{c.job}</p>
                         {c.waiting && (
-                          <p className="mt-1.5 inline-block bg-neutral-200 px-1.5 py-1 font-condensed text-[9px] font-semibold uppercase leading-none tracking-[0.1em] text-neutral-700">
+                          <p className="mt-1.5 inline-block bg-neutral-200 px-1.5 py-1 font-condensed text-[11px] font-semibold uppercase leading-none tracking-[0.1em] text-neutral-700">
                             {WAITING_REASON_LABEL[c.waiting]} · {c.until}
                           </p>
                         )}

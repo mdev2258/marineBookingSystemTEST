@@ -22,6 +22,13 @@ export async function AdminShell({
 
   return (
     <>
+      {/* 2.4.1: one tab past the nav on every admin screen. */}
+      <a
+        href="#main"
+        className="k sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-30 focus:bg-accent-900 focus:px-4 focus:py-3 focus:text-bg"
+      >
+        Skip to content
+      </a>
       <header className="border-b border-divider bg-bg">
         <div
           className={`mx-auto flex ${wide ? 'max-w-none' : 'max-w-3xl'} items-center justify-between gap-3 px-4 py-3`}
@@ -65,7 +72,7 @@ export async function AdminShell({
         </div>
       </header>
 
-      <main className={`mx-auto w-full ${wide ? 'max-w-none' : 'max-w-3xl'} flex-1 px-4 pb-28`}>
+      <main id="main" className={`mx-auto w-full ${wide ? 'max-w-none' : 'max-w-3xl'} flex-1 px-4 pb-28`}>
         {children}
       </main>
 
