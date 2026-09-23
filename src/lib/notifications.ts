@@ -13,6 +13,7 @@ import {
   POSTPONE_REASON_OWNER,
   type CancellationReason,
   type PostponeReason,
+  type ReminderKind,
 } from '@/lib/enums';
 
 /**
@@ -616,5 +617,75 @@ ${v.booking.reference}`;
     bookingId: v.bookingId,
     customerId: v.customer.id,
     vesselId: v.vessel.id,
+  });
+}
+
+const REMINDER_SUBJECT: Record<ReminderKind, string> = {
+  rig_age: 'time to look at the rigging?',
+  service_due: 'due a service',
+  antifoul: 'antifoul this year?',
+  winterise: 'winterisation before the frosts?',
+  commission: 'ready for the season?',
+  custom: 'worth a look?',
+};
+
+async function loadReminder(reminderId: string) {
+  const r = await prisma.reminder.findUnique({
+    where: { id: reminderId },
+    include: { vessel: { include: { customer: true } }, equipment: true },
+  });
+  if (!r || !r.vessel.customer) return null;
+  return { ...r, customer: r.vessel.customer };
+}
+
+/**
+ * "Worth booking her in?"
+ *
+ * The email that finds work. It is short, it names the specific reason, and
+ * the whole call to action is one button -- an owner reading this on a phone
+ * at a bus stop should be able to say yes without thinking about it.
+ *
+ * It deliberately carries NO PRICE. The trade has not seen the boat, and a
+ * number sent before looking is the thing that turns into an argument later.
+ * Saying yes creates an enquiry, not a booking and not a commitment.
+ */
+export async function sendServiceReminderEmail(
+  reminderId: string,
+): Promise<SendEmailResult | null> {
+  const r = await loadReminder(reminderId);
+  if (!r || !r.token) return null;
+
+  const link = `${baseUrl()}/reminder/${r.token}`;
+  // The subject is the whole email for most people -- it is all a phone shows
+  // in a notification. So it asks a question an owner can answer, rather than
+  // naming a category ("Rigging age?") they have to decode.
+  const subject = `${r.vessel.name} — ${REMINDER_SUBJECT[r.kind as ReminderKind] ?? 'worth a look?'}`;
+
+  const text = `Hi ${r.customer.name},
+
+${r.message ?? 'Something on ' + r.vessel.name + ' is due.'}
+
+If you would like us to take care of it, just say so here and we will come back
+to you with a price:
+
+${link}
+
+No obligation, and nothing is booked until you have seen what it costs.
+
+Harbourside Marine Services`;
+
+  return sendEmail({
+    type: 'service_reminder',
+    to: r.customer.email,
+    subject,
+    text,
+    html: wrap(
+      `${esc(r.vessel.name)}`,
+      `<p style="font-size:15px;">${esc(r.message ?? `Something on ${r.vessel.name} is due.`)}</p>
+      ${button(link, 'Yes, book me in')}
+      <p style="font-size:14px;color:#334155;">No obligation, and nothing is booked until you have seen what it costs.</p>`,
+    ),
+    customerId: r.customer.id,
+    vesselId: r.vesselId,
   });
 }

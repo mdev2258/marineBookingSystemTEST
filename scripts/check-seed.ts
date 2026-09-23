@@ -28,6 +28,7 @@ import {
 import { JOB_COLUMN, WAITING_REASON } from '../src/lib/enums';
 import { lineAmountPence, parseQty, totalsFor } from '../src/lib/estimates';
 import { buildTimeline } from '../src/lib/timeline';
+import { findDueWork } from '../src/lib/due-work';
 
 const prisma = new PrismaClient();
 
@@ -273,6 +274,46 @@ async function main() {
   check(
     'cards waiting on parts have a part still outstanding',
     waitingOnParts.filter((b) => b.partOrders.length === 0).length,
+    0,
+  );
+
+  // --- reminders that find work (§7 F5) -------------------------------------
+  // findDueWork only reads, so the rules can be checked here without the
+  // pre-flight writing anything.
+  const dueToday = await findDueWork(today);
+  const motorBoats = new Set(
+    (await prisma.vessel.findMany({ where: { keelType: 'Planing' }, select: { id: true } })).map((v) => v.id),
+  );
+  // A motor boat has no rig, and asking its owner to winterise one makes the
+  // whole reminder batch look like spam.
+  check(
+    'no motor boat is told to winterise',
+    dueToday.filter((d) => d.kind === 'winterise' && motorBoats.has(d.vesselId)).length,
+    0,
+  );
+  atLeast(
+    'the sweep finds old rigging',
+    dueToday.filter((d) => d.kind === 'rig_age').length,
+    4,
+  );
+  // The seasonal gate: February is commissioning for everyone, and nobody
+  // winterises in spring.
+  const february = await findDueWork(`${Number(today.slice(0, 4)) + 1}-02-10`);
+  check('February asks nobody to winterise', february.filter((d) => d.kind === 'winterise').length, 0);
+  check(
+    'February asks every boat about commissioning',
+    february.filter((d) => d.kind === 'commission').length,
+    await prisma.vessel.count(),
+  );
+
+  check(
+    'every sent reminder carries a token the owner can answer',
+    await prisma.reminder.count({ where: { status: 'sent', token: null } }),
+    0,
+  );
+  check(
+    'every booked reminder points at the card it became',
+    await prisma.reminder.count({ where: { status: 'booked', bookingId: null } }),
     0,
   );
 

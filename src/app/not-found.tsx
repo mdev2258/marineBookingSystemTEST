@@ -21,8 +21,8 @@ export default function NotFound() {
         That link has already been used
       </h1>
       <p className="mt-3 text-[15px]">
-        If you have just answered an estimate or approved some extra work, we have got it — nothing
-        else is needed from you.
+        If you have just answered us — an estimate, some extra work, or a reminder — we have got
+        it, and nothing else is needed from you.
       </p>
       <p className="mt-3 text-[15px]">
         If you were expecting something else, or the link looks old, give us a ring on{' '}

@@ -310,6 +310,20 @@ export const REMINDER_KIND_LABEL: Record<ReminderKind, string> = {
   custom: 'Reminder',
 };
 
+/**
+ * What the card is called when an owner says yes. REMINDER_KIND_LABEL names the
+ * REASON ("Rigging age"); this names the JOB, because it sits on the board next
+ * to "Engine service + impeller" and has to read like one.
+ */
+export const REMINDER_JOB_TITLE: Record<ReminderKind, string> = {
+  service_due: 'Engine service',
+  rig_age: 'Standing rigging — inspect or replace',
+  antifoul: 'Antifoul',
+  winterise: 'Winterisation',
+  commission: 'Spring commissioning',
+  custom: 'Booked from a reminder',
+};
+
 export const REMINDER_STATUS = ['upcoming', 'sent', 'booked', 'dismissed'] as const;
 export type ReminderStatus = (typeof REMINDER_STATUS)[number];
 

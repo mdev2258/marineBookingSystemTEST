@@ -39,6 +39,12 @@ export async function AdminShell({
               )}
             </Link>
             <Link
+              href="/admin/reminders"
+              className="font-condensed font-semibold tracking-tight hover:text-accent-700"
+            >
+              Due
+            </Link>
+            <Link
               href="/admin/enquiries"
               className="font-condensed font-semibold tracking-tight hover:text-accent-700"
             >
