@@ -253,3 +253,19 @@ textarea {
     color: inherit;
   }
 }
+
+/* ── The board on paper ─────────────────────────────────────────────────
+   A CSS NAMED PAGE, so only the printed board goes landscape. Every record
+   and job sheet keeps the portrait A4 set further up. Chrome and Edge honour
+   named pages; a browser that does not simply prints it portrait, which is
+   cramped but still correct. */
+@page board {
+  size: A4 landscape;
+  margin: 10mm;
+}
+
+@media print {
+  .print-board {
+    page: board;
+  }
+}

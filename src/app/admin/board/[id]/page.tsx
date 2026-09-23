@@ -139,9 +139,14 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
   return (
     <AdminShell>
       <div className="py-5">
-        <Link href={`/admin/board?col=${column}`} className="k muted">
-          &lsaquo; Back to the board
-        </Link>
+        <div className="flex items-baseline justify-between gap-3">
+          <Link href={`/admin/board?col=${column}`} className="k muted">
+            &lsaquo; Back to the board
+          </Link>
+          <Link href={`/admin/board/${job.id}/print`} className="k underline">
+            Job sheet
+          </Link>
+        </div>
 
         {/* Card -> here -> the boat file is two taps, which is the §7 F2
             acceptance criterion. The boat name IS the link, because that is

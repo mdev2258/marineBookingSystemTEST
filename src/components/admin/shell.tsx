@@ -76,10 +76,13 @@ export async function AdminShell({
         is the part a thumb cannot reach. pb-28 on <main> above keeps it from
         covering the last card.
       */}
+      {/* no-print: a fixed element prints on EVERY page, so without this the
+          rig record handed to an insurer came out with a black "JOT" box in
+          the corner. Found in F7; had been on every F2 record since F2. */}
       <Link
         href="/admin/jot"
         aria-label="Jot something down"
-        className="k fixed bottom-5 right-5 z-20 flex h-16 min-w-16 items-center justify-center bg-accent-900 px-5 text-bg shadow-lg hover:bg-ink"
+        className="no-print k fixed bottom-5 right-5 z-20 flex h-16 min-w-16 items-center justify-center bg-accent-900 px-5 text-bg shadow-lg hover:bg-ink"
       >
         Jot
       </Link>

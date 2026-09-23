@@ -109,6 +109,12 @@ export default async function BoardPage(props: PageProps<'/admin/board'>) {
         >
           Quick add a job
         </Link>
+        <Link
+          href="/admin/board/print"
+          className="k ml-2 inline-flex min-h-12 items-center border border-divider px-4 hover:bg-neutral-200"
+        >
+          Print the board
+        </Link>
       </div>
     </AdminShell>
   );
