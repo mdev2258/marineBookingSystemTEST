@@ -1,3 +1,5 @@
+import { getBusiness } from '@/lib/business';
+
 /**
  * The chrome an owner sees. Used by every token page.
  *
@@ -6,22 +8,26 @@
  * It is plain text now: an owner arriving from an emailed link has exactly
  * one thing to do on the page they landed on, and a header link is only a way
  * to lose them.
+ *
+ * With no `business` passed it reads the Operator row itself, so no page can
+ * fall back to a made-up phone number.
  */
-export function PublicShell({
+export async function PublicShell({
   children,
-  business = { name: 'Harbourside Marine Services', phone: '01590 000000' },
+  business: passed,
   width = 'wide',
 }: {
   children: React.ReactNode;
   business?: { name: string; phone: string | null };
   width?: 'wide' | 'narrow';
 }) {
+  const business = passed ?? (await getBusiness());
   return (
     <>
       <header className="border-b border-divider">
         <div className="mx-auto flex max-w-2xl items-center justify-between gap-4 px-5 py-4">
-          <span className="font-condensed font-semibold tracking-tight">{business.name}</span>
-          {business.phone && (
+          <span className="font-condensed font-semibold tracking-tight">{business?.name}</span>
+          {business?.phone && (
             <a
               href={`tel:${business.phone.replace(/\s/g, '')}`}
               className="text-sm text-accent-700 underline"

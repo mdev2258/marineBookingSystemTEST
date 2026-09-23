@@ -1,26 +1,29 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { PublicShell } from '@/components/public-shell';
 import { Plate } from '@/components/ui/plate';
 import { formatPence } from '@/lib/money';
-import {
-  JOB_COLUMN_OWNER_LABEL,
-  WAITING_REASON_LABEL,
-  type JobColumn,
-  type WaitingReason,
-} from '@/lib/enums';
-import {
-  isCompleted,
-  loadBoatByToken,
-  ownerHasSeenPrice,
-  workDate,
-} from '@/lib/boat';
-import { formatLondonDateShort } from '@/lib/time';
+import { JOB_COLUMN_OWNER_LABEL, type JobColumn, type WaitingReason } from '@/lib/enums';
+import { isCompleted, loadBoatByToken, workDate } from '@/lib/boat';
+import { formatLondonDateShort, todayInLondon } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Your boat' };
+
+/** The admin labels ("Owner decision") are the trade's words; these are the owner's. */
+const OWNER_WAITING: Record<WaitingReason, string> = {
+  yard_lift: 'Waiting for the yard to lift her',
+  crane: 'Waiting for the crane',
+  parts: 'Waiting for parts',
+  owner_decision: 'Waiting for your decision',
+  weather: 'Waiting for the weather',
+  tide: 'Waiting for the right tide',
+  access: 'Waiting for access to the boat',
+  other: 'On hold for now',
+};
 
 /**
  * WHAT THE OWNER SEES. No account, no password, no app: one link, emailed.
@@ -46,6 +49,7 @@ export default async function OwnerBoatPage(props: PageProps<'/boat/[token]'>) {
 
   const live = boat.bookings.filter((j) => !isCompleted(j) && j.column !== 'jotted');
   const done = boat.bookings.filter(isCompleted);
+  const today = todayInLondon();
 
   return (
     <PublicShell business={business}>
@@ -64,8 +68,11 @@ export default async function OwnerBoatPage(props: PageProps<'/boat/[token]'>) {
         ) : (
           <ul className="mt-4 space-y-4">
             {live.map((job) => {
-              const showPrice = ownerHasSeenPrice(job);
-              const agreed = job.quotedPence;
+              // Newest estimate the owner has actually been sent. Only an
+              // accepted one is "agreed"; a sent one is still their call.
+              const estimate = job.estimates.find(
+                (e) => e.status === 'sent' || e.status === 'accepted',
+              );
 
               return (
                 <Plate as="li" key={job.id} className="bg-bg p-4">
@@ -74,12 +81,9 @@ export default async function OwnerBoatPage(props: PageProps<'/boat/[token]'>) {
                   <p className="mt-1 text-[14px] text-accent-800">
                     {job.column === 'waiting' && job.waitingReason ? (
                       <>
-                        Waiting for{' '}
-                        {(
-                          WAITING_REASON_LABEL[job.waitingReason as WaitingReason] ??
-                          job.waitingReason
-                        ).toLowerCase()}
-                        {job.waitingUntil
+                        {OWNER_WAITING[job.waitingReason as WaitingReason] ?? 'Waiting'}
+                        {/* A date already gone is not "expected" -- say nothing rather than something false. */}
+                        {job.waitingUntil && job.waitingUntil >= today
                           ? ` — expected ${formatLondonDateShort(job.waitingUntil)}`
                           : ''}
                       </>
@@ -88,8 +92,23 @@ export default async function OwnerBoatPage(props: PageProps<'/boat/[token]'>) {
                     )}
                   </p>
 
-                  {showPrice && agreed != null && (
-                    <p className="mt-2 text-[14px]">Agreed: {formatPence(agreed)}</p>
+                  {estimate?.status === 'accepted' && (
+                    <p className="mt-2 text-[14px]">Agreed: {formatPence(estimate.totalPence)}</p>
+                  )}
+                  {estimate?.status === 'sent' && (
+                    <p className="mt-3 border-l-2 border-accent-700 pl-3 text-[14px]">
+                      <span className="k">Estimate — needs your go-ahead</span>
+                      <br />
+                      {formatPence(estimate.totalPence)}
+                      {estimate.token && (
+                        <>
+                          {' · '}
+                          <Link href={`/estimate/${estimate.token}`} className="text-accent-700 underline">
+                            Have a look
+                          </Link>
+                        </>
+                      )}
+                    </p>
                   )}
 
                   {job.variations
@@ -99,6 +118,14 @@ export default async function OwnerBoatPage(props: PageProps<'/boat/[token]'>) {
                         <span className="k">Needs your go-ahead</span>
                         <br />
                         {v.description} — {formatPence(v.estimatePence)}
+                        {v.token && (
+                          <>
+                            {' · '}
+                            <Link href={`/variation/${v.token}`} className="text-accent-700 underline">
+                              Yes or no
+                            </Link>
+                          </>
+                        )}
                       </p>
                     ))}
                 </Plate>

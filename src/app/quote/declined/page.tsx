@@ -1,27 +1,27 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { PublicShell } from '@/components/public-shell';
+import { getBusiness } from '@/lib/business';
 
 export const metadata: Metadata = { title: 'Quote declined — Harbourside Marine' };
 
-export default function QuoteDeclinedPage() {
+export default async function QuoteDeclinedPage() {
+  const business = await getBusiness();
   return (
     <PublicShell width="narrow">
       <h1 className="text-2xl font-semibold tracking-tight">Right you are</h1>
       <p className="mt-3 text-neutral-700">
-        We have marked that one as declined and released the date. Nothing has been charged and
+        We have marked that one as declined. Nothing is booked, nothing has been charged, and
         there is nothing else you need to do.
       </p>
-      <p className="mt-3 text-neutral-700">
-        If it was the price rather than the work, ring us on{' '}
-        <a href="tel:01590000000" className="text-brand-700 underline">
-          01590 000000
-        </a>{' '}
-        — there is usually a way to phase it.
-      </p>
-      <Link href="/request" className="mt-6 inline-block text-brand-700 underline">
-        Ask us about something else
-      </Link>
+      {business?.phone && (
+        <p className="mt-3 text-neutral-700">
+          If it was the price rather than the work, ring us on{' '}
+          <a href={`tel:${business.phone.replace(/\s/g, '')}`} className="text-brand-700 underline">
+            {business.phone}
+          </a>{' '}
+          — there is usually a way to phase it.
+        </p>
+      )}
     </PublicShell>
   );
 }

@@ -3,7 +3,7 @@ import { PublicShell } from '@/components/public-shell';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Thanks' };
+export const metadata: Metadata = { title: 'Booking request received' };
 
 /**
  * Where "yes" lands -- and where a second click on an old link lands too.

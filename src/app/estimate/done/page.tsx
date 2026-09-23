@@ -3,7 +3,7 @@ import { PublicShell } from '@/components/public-shell';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Thanks' };
+export const metadata: Metadata = { title: 'Estimate — answer received' };
 
 /**
  * Where a spent estimate link lands -- whether it was just answered, or

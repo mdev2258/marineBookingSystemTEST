@@ -5,6 +5,7 @@ import { QuoteAccept } from '@/components/quote-accept';
 import { Plate } from '@/components/ui/plate';
 import { depositPence, formatPence } from '@/lib/money';
 import { formatDateLong, formatTimeRange } from '@/lib/time';
+import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,6 +13,7 @@ export const metadata: Metadata = { title: 'Your quote — Harbourside Marine' }
 
 /** Direction 2b-C. The estimate plate is the screen; everything else frames it. */
 export default async function QuotePage(props: PageProps<'/quote/[token]'>) {
+  yardOnly();
   const { token } = await props.params;
 
   const booking = await prisma.booking.findFirst({

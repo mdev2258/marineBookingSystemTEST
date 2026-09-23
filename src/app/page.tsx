@@ -2,10 +2,10 @@ import { ContactForm } from '@/components/marketing/contact-form';
 import { Plate } from '@/components/ui/plate';
 import { JOB_COLUMN_LABEL, WAITING_REASON_LABEL } from '@/lib/enums';
 
-// PLACEHOLDER — swap for the real trading name (and the footer email) before
-// this goes anywhere near a prospect.
+// Demo trading name and address -- swap for the real ones before launch. The
+// .example domain is reserved, so a prospect's mail can never reach a stranger.
 const BUSINESS = 'Tidemark Software';
-const CONTACT_EMAIL = 'hello@example.com';
+const CONTACT_EMAIL = 'hello@tidemark.example';
 
 export const metadata = {
   title: `${BUSINESS} — a job board for marine trades`,
@@ -173,7 +173,8 @@ export default function Home() {
           <div className="mt-8 grid gap-8 sm:grid-cols-3">
             {OWNER.map((p) => (
               <div key={p.title}>
-                <h3 className="text-lg uppercase text-accent-700">{p.title}</h3>
+                {/* Two lines reserved so the three bodies start level at desktop widths. */}
+                <h3 className="text-lg uppercase text-balance text-accent-700 sm:min-h-[2lh]">{p.title}</h3>
                 <p className="mt-2 leading-relaxed">{p.body}</p>
               </div>
             ))}

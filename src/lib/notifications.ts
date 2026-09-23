@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { baseUrl, sendEmail, type SendEmailResult } from '@/lib/email';
+import { getBusiness } from '@/lib/business';
 import { formatPence } from '@/lib/money';
 import {
   formatDateShort,
@@ -34,19 +35,19 @@ function esc(value: string): string {
 
 // Plain, readable transactional email. Inline styles only -- no CSS file
 // survives Gmail, and nothing here is worth a rendering library.
-//
-// ponytail: the business name and footer are hardcoded to the demo firm. They
-// should come from the Operator row once there is a second install; threading
-// it through every template earns nothing while there is exactly one.
-function wrap(heading: string, bodyHtml: string): string {
+// The header and footer read the Operator row -- the same source as every
+// owner-facing page -- so an email cannot quote a different phone number.
+async function wrap(heading: string, bodyHtml: string): Promise<string> {
+  const business = await getBusiness();
+  const name = esc(business?.name ?? '');
   return `<!doctype html>
 <html><body style="margin:0;padding:24px;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#0f172a;">
   <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:12px;padding:28px;">
-    <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#0b4f6c;font-weight:700;">Harbourside Marine Services</div>
+    <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#0b4f6c;font-weight:700;">${name}</div>
     <h1 style="font-size:21px;line-height:1.3;margin:14px 0 18px;">${heading}</h1>
     ${bodyHtml}
     <hr style="border:0;border-top:1px solid #e2e8f0;margin:26px 0 14px;">
-    <p style="font-size:12px;color:#475569;margin:0;">Harbourside Marine Services &middot; Chichester Harbour &middot; 07700 900001</p>
+    <p style="font-size:12px;color:#475569;margin:0;">${name}${business?.phone ? ` &middot; ${esc(business.phone)}` : ''}</p>
   </div>
 </body></html>`;
 }
@@ -122,7 +123,7 @@ Harbourside Marine`;
     to: b.customer.email,
     subject,
     text,
-    html: wrap(
+    html: await wrap(
       `Thanks — we have your request`,
       `${table([
         row('Reference', esc(b.reference)),
@@ -164,7 +165,7 @@ Harbourside Marine`;
     to: b.customer.email,
     subject,
     text,
-    html: wrap(
+    html: await wrap(
       `Your quote for ${esc(b.vessel.name)}`,
       `${table([
         row('Reference', esc(b.reference)),
@@ -227,7 +228,7 @@ Harbourside Marine`;
     to: b.customer.email,
     subject,
     text,
-    html: wrap(
+    html: await wrap(
       `${esc(b.vessel.name)} is booked in`,
       `${table(details)}${button(link, 'View this job')}<p style="font-size:14px;color:#334155;">Please make sure she is accessible and the cockpit is clear before we start.</p>`,
     ),
@@ -274,7 +275,7 @@ Harbourside Marine`;
     to: b.customer.email,
     subject,
     text,
-    html: wrap(
+    html: await wrap(
       `We've had to call off ${esc(b.vessel.name)}`,
       `${table([
         row('Vessel', esc(vesselLine(b.vessel))),
@@ -320,7 +321,7 @@ Harbourside Marine`;
     to: b.customer.email,
     subject,
     text,
-    html: wrap(
+    html: await wrap(
       `${esc(b.vessel.name)} is moved across`,
       `${table([
         row('Reference', esc(b.reference)),
@@ -368,7 +369,7 @@ Harbourside Marine`;
     to: b.customer.email,
     subject,
     text,
-    html: wrap(
+    html: await wrap(
       `We're on ${esc(b.vessel.name)} tomorrow`,
       `${table([
         row('Vessel', esc(vesselLine(b.vessel))),
@@ -405,7 +406,7 @@ ${input.message}`;
     to,
     subject,
     text,
-    html: wrap(
+    html: await wrap(
       'New enquiry',
       `${table([
         row('Name', esc(input.name)),
@@ -470,7 +471,7 @@ ${e.booking.reference}`;
     to: e.customer.email,
     subject,
     text,
-    html: wrap(
+    html: await wrap(
       `Estimate for ${esc(e.vessel.name)}`,
       `${table(lines.map((l) => row(esc(l.description), formatPence(l.amountPence))))}
       <p style="font-size:17px;"><strong>Total: ${formatPence(e.totalPence)}</strong></p>
@@ -533,7 +534,7 @@ ${v.booking.reference}`;
     to: v.customer.email,
     subject,
     text,
-    html: wrap(
+    html: await wrap(
       isReminder ? `Still need your go-ahead` : `We found something on ${esc(v.vessel.name)}`,
       `${note(v.description)}
       ${v.reason ? `<p style="font-size:15px;"><strong>Why:</strong> ${esc(v.reason)}</p>` : ''}
@@ -607,7 +608,7 @@ ${v.booking.reference}`;
     to: v.customer.email,
     subject,
     text,
-    html: wrap(
+    html: await wrap(
       `${esc(v.vessel.name)} — ${esc(formatDateShort(v.startsAt))} moved`,
       `<p style="font-size:15px;">We were due on <strong>${esc(v.vessel.name)}</strong> on ${esc(was)}, and we are not going to make it because of ${esc(because)}.</p>
       <p style="font-size:15px;"><strong>${esc(next)}</strong></p>
@@ -679,7 +680,7 @@ Harbourside Marine Services`;
     to: r.customer.email,
     subject,
     text,
-    html: wrap(
+    html: await wrap(
       `${esc(r.vessel.name)}`,
       `<p style="font-size:15px;">${esc(r.message ?? `Something on ${r.vessel.name} is due.`)}</p>
       ${button(link, 'Yes, book me in')}
@@ -743,7 +744,7 @@ ${inv.operator.name}`;
     to: inv.customer.email,
     subject,
     text,
-    html: wrap(
+    html: await wrap(
       `Invoice ${esc(inv.number)}`,
       `<p style="font-size:15px;">For the work on <strong>${esc(inv.vessel.name)}</strong>.</p>
       ${table([
@@ -805,7 +806,7 @@ ${inv.operator.name}`;
     to: inv.customer.email,
     subject,
     text,
-    html: wrap(
+    html: await wrap(
       esc(subject),
       `<p style="font-size:15px;">${esc(opener)}</p>
       <p style="font-size:17px;"><strong>${formatPence(inv.totalPence)}</strong></p>

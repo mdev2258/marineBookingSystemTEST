@@ -3,7 +3,7 @@ import { PublicShell } from '@/components/public-shell';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Thanks' };
+export const metadata: Metadata = { title: 'Extra work — answer received' };
 
 /** Where a spent variation link lands. See /estimate/done for why both
  *  outcomes and both timings read alike. */
