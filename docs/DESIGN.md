@@ -49,7 +49,7 @@ references and numerals, loaded via `next/font` rather than the stylesheet's
 |---|---|
 | **The yard stays "Harbourside Marine"** | The handoff calls the boatyard "Tidemark". In this codebase Tidemark is the placeholder name of the *software* business on the marketing page at `/`. Renaming either one is the owner's call, not a design decision. |
 | **No customer accounts** | The designs assume customers log in and switch roles. This app reaches owners through single-use emailed tokens instead. A demo nobody has to sign up for is worth more than fidelity here, and it avoids building auth, resets and recovery. |
-| **The marketing page at `/` is not restyled** | It belongs to the software business, not the yard. The handoff only covers the product. |
+| **The marketing page at `/` uses the system too** (since F8) | It was left unstyled while it pitched yards. Rewritten for tradespeople, it now matches the product it sells, and its board illustration reads column and waiting-reason names straight from `src/lib/enums.ts`. It still names the *software* business, not the demo trade. |
 | **Deposit stays 50%** | The handoff shows 30% on approval (and 25% elsewhere — its own open question #5). Ours is 50% and lives on the service, so it is data rather than a design token. |
 | **References stay `HS-XXXXXX`** | The handoff uses `TM-J118` / `TM-Q77`. Ours are already generated, unguessable and printed on emails and screens. |
 | **2c is built shallow** | See below. |

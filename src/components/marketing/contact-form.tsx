@@ -96,7 +96,7 @@ export function ContactForm() {
 
       <div>
         <label htmlFor="message" className="mb-1.5 block font-medium">
-          How does work reach you at the moment?
+          Where does your job list live right now? Head, notebook, texts?
         </label>
         <textarea
           id="message"

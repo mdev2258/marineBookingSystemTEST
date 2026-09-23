@@ -8,7 +8,7 @@ const ContactSchema = z.object({
   name: z.string().trim().min(1, 'Please tell me your name.').max(120),
   email: z.email('That email address does not look right.').max(200),
   business: z.string().trim().max(120).optional(),
-  message: z.string().trim().min(10, 'A sentence or two about your setup is plenty.').max(5000),
+  message: z.string().trim().min(10, 'A sentence or two is plenty.').max(5000),
 });
 
 export type ContactValues = { name: string; email: string; business: string; message: string };

@@ -21,7 +21,7 @@ const barlowCondensed = Barlow_Condensed({
 // marketing page at / is the freelancer's own business and overrides this.
 export const metadata: Metadata = {
   title: "Harbourside Marine Services",
-  description: "Boatyard and marine services in Lymington: liftouts, surveys, rigging and repair.",
+  description: "Rigging and marine engineering around Chichester Harbour.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
