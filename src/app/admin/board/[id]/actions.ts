@@ -11,9 +11,12 @@ import { DEFAULT_VAT_BPS, lineAmountPence, parseQty, totalsFor } from '@/lib/est
 import { poundsToPence } from '@/lib/money';
 import {
   sendEstimateEmail,
+  sendInvoiceEmail,
   sendVariationEmail,
   sendVisitPostponedEmail,
 } from '@/lib/notifications';
+import { issueInvoice, voidInvoice } from '@/lib/invoices';
+import { markInvoicePaid } from '@/lib/payments';
 import { londonDateTimeToUtc, todayInLondon } from '@/lib/time';
 
 async function business() {
@@ -156,7 +159,7 @@ export async function sendEstimate(jobId: string, formData: FormData): Promise<v
       data: {
         column: 'estimate_sent',
         columnChangedAt: new Date(),
-        position: await nextPosition('estimate_sent'),
+        position: await nextPosition('estimate_sent', tx),
         quotedPence: totals.gross,
         quotedAt: new Date(),
         quoteNotes: notes || null,
@@ -471,4 +474,58 @@ export async function postponeVisit(
 
   revalidatePath('/admin/board');
   redirect(`/admin/board/${jobId}?postponed=1#visits`);
+}
+
+// ---------------------------------------------------------------------------
+// F6 — invoices and getting paid
+// ---------------------------------------------------------------------------
+
+/**
+ * Issue the invoice for a finished job, then email it -- after the commit,
+ * never inside it.
+ */
+export async function issueInvoiceAction(jobId: string): Promise<void> {
+  await requireAdmin();
+
+  const result = await issueInvoice(jobId);
+  if (!result.ok) {
+    redirect(`/admin/board/${jobId}?error=${result.reason}#invoice`);
+  }
+
+  await sendInvoiceEmail(result.invoiceId);
+
+  revalidatePath('/admin/board');
+  revalidatePath('/admin/invoices');
+  redirect(`/admin/board/${jobId}?invoiced=${encodeURIComponent(result.number)}#invoice`);
+}
+
+/** Void it. Its number is burned, and the card goes back to Done. */
+export async function voidInvoiceAction(invoiceId: string, jobId: string): Promise<void> {
+  await requireAdmin();
+  await voidInvoice(invoiceId);
+  revalidatePath('/admin/board');
+  revalidatePath('/admin/invoices');
+  redirect(`/admin/board/${jobId}#invoice`);
+}
+
+/**
+ * Paid by bank transfer, cash, or a card machine on the pontoon. The trade
+ * records it; the app does not see the money. Same write path the Stripe
+ * webhook will use.
+ */
+export async function markInvoicePaidAction(
+  invoiceId: string,
+  jobId: string,
+  formData: FormData,
+): Promise<void> {
+  await requireAdmin();
+
+  const raw = String(formData.get('paidVia') ?? 'bank');
+  // 'link' is Stripe's, and only the webhook may claim a payment came that way.
+  const paidVia = raw === 'cash' || raw === 'card_machine' ? raw : 'bank';
+  await markInvoicePaid(invoiceId, paidVia);
+
+  revalidatePath('/admin/board');
+  revalidatePath('/admin/invoices');
+  redirect(`/admin/board/${jobId}#invoice`);
 }

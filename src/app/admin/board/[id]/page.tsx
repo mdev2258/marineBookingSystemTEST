@@ -27,6 +27,8 @@ import {
 } from '@/lib/enums';
 import {
   addPartOrder,
+  issueInvoiceAction,
+  markInvoicePaidAction,
   markPartArrived,
   markVisitDone,
   planVisit,
@@ -34,7 +36,9 @@ import {
   raiseVariation,
   recordEstimateDecision,
   recordVariationDecision,
+  voidInvoiceAction,
 } from '@/app/admin/board/[id]/actions';
+import { daysOverdue } from '@/lib/invoices';
 import {
   daysBetween,
   formatDateShort,
@@ -73,15 +77,17 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
       lineItems: { orderBy: { sortOrder: 'asc' } },
       partOrders: { orderBy: [{ arrivedOn: 'asc' }, { etaOn: 'asc' }] },
       visits: { orderBy: { startsAt: 'desc' }, include: { place: { select: { name: true } } } },
+      invoices: { orderBy: { createdAt: 'desc' } },
       emailLogs: { orderBy: { createdAt: 'desc' }, take: 20 },
     },
   });
   if (!job) notFound();
 
-  const places = await prisma.place.findMany({
-    orderBy: { sortOrder: 'asc' },
-    select: { id: true, name: true },
-  });
+  const [places, business] = await Promise.all([
+    prisma.place.findMany({ orderBy: { sortOrder: 'asc' }, select: { id: true, name: true } }),
+    prisma.operator.findFirst({ select: { vatRegistered: true } }),
+  ]);
+  const vatRegistered = business?.vatRegistered ?? false;
 
   const today = todayInLondon();
   const column = job.column as JobColumn;
@@ -100,6 +106,24 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
   const awaiting = job.variations.filter((v) => v.status === 'awaiting_owner');
   const settled = job.variations.filter((v) => v.status !== 'awaiting_owner');
   const timeline = buildTimeline(job);
+
+  // What an invoice issued right now would bill: ticked lines plus extra work
+  // the owner said yes to. Shown BEFORE issuing, because an invoice is the one
+  // document here that cannot be quietly corrected afterwards -- only voided,
+  // burning its number.
+  const billableLines = job.lineItems.filter((l) => l.done);
+  const billableVariations = job.variations.filter((v) => v.status === 'approved');
+  const billablePence =
+    billableLines.reduce((n, l) => n + l.amountPence, 0) +
+    billableVariations.reduce((n, v) => n + v.estimatePence, 0);
+  const unticked = job.lineItems.filter((l) => !l.done).length;
+  const liveInvoice = job.invoices.find((i) => i.status === 'sent' || i.status === 'paid');
+  const voided = job.invoices.filter((i) => i.status === 'void');
+  const showInvoice =
+    job.column === 'done_to_invoice' ||
+    job.column === 'invoiced' ||
+    job.column === 'paid' ||
+    job.invoices.length > 0;
 
   const outstandingParts = job.partOrders.filter((p) => p.arrivedOn == null);
   const plannedVisit = job.visits.find((v) => v.status === 'planned');
@@ -378,6 +402,121 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
         >
           Sort this into a job
         </Link>
+      )}
+
+      {/* ---- Invoice ---- */}
+      {showInvoice && (
+        <section id="invoice" className="mt-8">
+          <h2 className="k border-b border-divider pb-2">Invoice</h2>
+
+          {params.error === 'nothing_to_bill' && (
+            <p className="mt-3 border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
+              Nothing is ticked off yet. Tick the lines that are done on the estimate first.
+            </p>
+          )}
+
+          {liveInvoice ? (
+            <div className="mt-3">
+              <p className="flex flex-wrap items-baseline gap-x-3">
+                <span className="ref">{liveInvoice.number}</span>
+                <span className="numeric text-xl">{formatPence(liveInvoice.totalPence)}</span>
+                <span className={`k ${liveInvoice.status === 'paid' ? 'text-accent-800' : 'muted'}`}>
+                  {liveInvoice.status === 'paid'
+                    ? `paid ${liveInvoice.paidOn ? formatLondonDateShort(liveInvoice.paidOn) : ''}${
+                        liveInvoice.paidVia ? ` · ${liveInvoice.paidVia.replace('_', ' ')}` : ''
+                      }`
+                    : daysOverdue(liveInvoice, today) > 0
+                      ? `${daysOverdue(liveInvoice, today)} days overdue`
+                      : `due ${formatLondonDateShort(liveInvoice.dueOn)}`}
+                </span>
+              </p>
+
+              {liveInvoice.status === 'sent' && (
+                <>
+                  <form
+                    action={markInvoicePaidAction.bind(null, liveInvoice.id, job.id)}
+                    className="mt-4 border border-divider p-3"
+                  >
+                    <p className="k">It&rsquo;s been paid</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(['bank', 'cash', 'card_machine'] as const).map((via) => (
+                        <button
+                          key={via}
+                          type="submit"
+                          name="paidVia"
+                          value={via}
+                          className="k min-h-12 border border-ink px-4 hover:bg-neutral-200"
+                        >
+                          {via === 'bank' ? 'Bank transfer' : via === 'cash' ? 'Cash' : 'Card machine'}
+                        </button>
+                      ))}
+                    </div>
+                  </form>
+
+                  <form action={voidInvoiceAction.bind(null, liveInvoice.id, job.id)} className="mt-3">
+                    <button
+                      type="submit"
+                      className="k min-h-11 border border-divider px-3 muted hover:bg-neutral-200"
+                    >
+                      Void it and start again
+                    </button>
+                    <p className="mt-1 text-[12px] muted">
+                      Its number stays used. The next invoice gets a new one.
+                    </p>
+                  </form>
+                </>
+              )}
+            </div>
+          ) : job.column === 'done_to_invoice' ? (
+            <div className="mt-3">
+              <p className="text-[13.5px] muted">This is what the invoice will bill:</p>
+              <ul className="mt-2 space-y-0.5">
+                {billableLines.map((l) => (
+                  <li key={l.id} className="flex justify-between gap-3 text-[13.5px]">
+                    <span>{l.description}</span>
+                    <span className="numeric">{formatPence(l.amountPence)}</span>
+                  </li>
+                ))}
+                {billableVariations.map((v) => (
+                  <li key={v.id} className="flex justify-between gap-3 text-[13.5px]">
+                    <span>
+                      {v.description} <span className="muted">(agreed extra)</span>
+                    </span>
+                    <span className="numeric">{formatPence(v.estimatePence)}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 flex justify-between border-t border-divider pt-2">
+                {/* Not "before any VAT" when there will not be any: for an
+                    unregistered business this IS the total, and the word VAT
+                    must not appear at all (§3.7). */}
+                <span className="k">{vatRegistered ? 'Before VAT' : 'Total'}</span>
+                <span className="numeric text-xl">{formatPence(billablePence)}</span>
+              </p>
+              {unticked > 0 && (
+                <p className="mt-1 text-[12.5px] muted">
+                  {unticked} line{unticked === 1 ? ' is' : 's are'} not ticked off and won&rsquo;t be
+                  billed.
+                </p>
+              )}
+
+              <form action={issueInvoiceAction.bind(null, job.id)} className="mt-4">
+                <button
+                  type="submit"
+                  className="k min-h-14 w-full bg-accent-900 px-6 text-bg hover:bg-ink sm:w-auto"
+                >
+                  Issue the invoice and email it
+                </button>
+              </form>
+            </div>
+          ) : null}
+
+          {voided.length > 0 && (
+            <p className="mt-4 text-[12.5px] muted">
+              Voided: {voided.map((v) => v.number).join(', ')}
+            </p>
+          )}
+        </section>
       )}
 
       {/* ---- Parts ---- */}

@@ -689,3 +689,135 @@ Harbourside Marine Services`;
     vesselId: r.vesselId,
   });
 }
+
+async function loadInvoice(invoiceId: string) {
+  const inv = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: {
+      operator: true,
+      lines: { orderBy: { sortOrder: 'asc' } },
+      booking: { include: { customer: true, vessel: true } },
+    },
+  });
+  if (!inv || !inv.booking.customer || !inv.booking.vessel) return null;
+  return { ...inv, customer: inv.booking.customer, vessel: inv.booking.vessel };
+}
+
+/**
+ * The invoice.
+ *
+ * VAT appears ONLY when the business is registered, and then as its own line.
+ * When it is not, the word does not appear at all (§3.7) -- a document that
+ * mentions VAT from someone who is not registered is a document that gets
+ * queried, and a sole trader under the threshold is the common case here.
+ *
+ * Bank details always go in. Most of these owners will pay by transfer
+ * whatever the email offers, and an invoice without them is an invoice that
+ * gets a reply asking for them.
+ */
+export async function sendInvoiceEmail(invoiceId: string): Promise<SendEmailResult | null> {
+  const inv = await loadInvoice(invoiceId);
+  if (!inv || !inv.token) return null;
+
+  const link = `${baseUrl()}/invoice/${inv.token}`;
+  const showVat = inv.operator.vatRegistered && inv.vatPence > 0;
+  const subject = `Invoice ${inv.number} — ${inv.vessel.name} — ${formatPence(inv.totalPence)}`;
+
+  const text = `Hi ${inv.customer.name},
+
+Invoice ${inv.number} for the work on ${inv.vessel.name}.
+
+${inv.lines.map((l) => `  ${l.description}  ${formatPence(l.amountPence)}`).join('\n')}
+${showVat ? `\n  VAT  ${formatPence(inv.vatPence)}` : ''}
+Total: ${formatPence(inv.totalPence)}
+Due by: ${formatLondonDateLong(inv.dueOn)}
+${inv.operator.bankDetailsText ? `\nBank transfer: ${inv.operator.bankDetailsText}\nPlease use ${inv.number} as the reference.\n` : ''}
+The invoice is here if you want it again: ${link}
+
+Thank you.
+
+${inv.operator.name}`;
+
+  return sendEmail({
+    type: 'invoice',
+    to: inv.customer.email,
+    subject,
+    text,
+    html: wrap(
+      `Invoice ${esc(inv.number)}`,
+      `<p style="font-size:15px;">For the work on <strong>${esc(inv.vessel.name)}</strong>.</p>
+      ${table([
+        ...inv.lines.map((l) => row(esc(l.description), formatPence(l.amountPence))),
+        ...(showVat ? [row('VAT', formatPence(inv.vatPence))] : []),
+      ])}
+      <p style="font-size:17px;"><strong>Total: ${formatPence(inv.totalPence)}</strong></p>
+      <p style="font-size:15px;">Due by ${esc(formatLondonDateLong(inv.dueOn))}.</p>
+      ${
+        inv.operator.bankDetailsText
+          ? note(`Bank transfer: ${inv.operator.bankDetailsText}\nPlease use ${inv.number} as the reference.`)
+          : ''
+      }
+      ${button(link, 'View the invoice')}`,
+    ),
+    bookingId: inv.bookingId,
+    customerId: inv.customer.id,
+    vesselId: inv.vessel.id,
+  });
+}
+
+/**
+ * The chase. Exactly two ever go out per invoice -- one on the due date, one a
+ * week later -- and then the app stops (§7 F6). A third is a debt collector,
+ * and the trade can pick up the phone for that.
+ *
+ * Polite on purpose. Most late payment from boat owners is forgetting, not
+ * refusing, and this is someone the trade wants back next spring.
+ */
+export async function sendInvoiceReminderEmail(
+  invoiceId: string,
+  stage: 'due' | 'overdue',
+): Promise<SendEmailResult | null> {
+  const inv = await loadInvoice(invoiceId);
+  if (!inv || !inv.token || inv.status !== 'sent') return null;
+
+  const link = `${baseUrl()}/invoice/${inv.token}`;
+  const subject =
+    stage === 'due'
+      ? `Invoice ${inv.number} is due today`
+      : `Invoice ${inv.number} — a week past due`;
+  const opener =
+    stage === 'due'
+      ? `Just a reminder that invoice ${inv.number} for ${inv.vessel.name} is due today.`
+      : `Invoice ${inv.number} for ${inv.vessel.name} is now a week past its due date. If it has already gone, thank you, and please ignore this.`;
+
+  const text = `Hi ${inv.customer.name},
+
+${opener}
+
+Amount: ${formatPence(inv.totalPence)}
+${inv.operator.bankDetailsText ? `Bank transfer: ${inv.operator.bankDetailsText} — reference ${inv.number}\n` : ''}
+${link}
+
+${inv.operator.name}`;
+
+  return sendEmail({
+    type: 'invoice_reminder',
+    to: inv.customer.email,
+    subject,
+    text,
+    html: wrap(
+      esc(subject),
+      `<p style="font-size:15px;">${esc(opener)}</p>
+      <p style="font-size:17px;"><strong>${formatPence(inv.totalPence)}</strong></p>
+      ${
+        inv.operator.bankDetailsText
+          ? note(`Bank transfer: ${inv.operator.bankDetailsText}\nReference: ${inv.number}`)
+          : ''
+      }
+      ${button(link, 'View the invoice')}`,
+    ),
+    bookingId: inv.bookingId,
+    customerId: inv.customer.id,
+    vesselId: inv.vessel.id,
+  });
+}

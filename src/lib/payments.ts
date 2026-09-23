@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { sendBookingConfirmationEmail } from '@/lib/notifications';
+import { todayInLondon } from '@/lib/time';
 
 /**
  * ============================================================================
@@ -150,4 +151,82 @@ export async function verifyAndMarkPaid(
   );
 
   return { bookingReference: booking.reference };
+}
+
+// ============================================================================
+// INVOICES -- the seam repointed for the trades product (ANALYSIS-TRADES.md
+// §5, §7 F6). A tradesperson invoices on completion and takes no deposit by
+// default, so this is where money actually moves now. The three booking
+// functions above stay for the parked yard flow.
+// ============================================================================
+
+/**
+ * Begin a card payment for an invoice, or report that card payment is not
+ * available.
+ *
+ * STUB: returns null. The owner's invoice page renders a "pay by card" button
+ * ONLY when this returns a URL, so until the specialist wires Stripe the page
+ * shows bank details alone and nothing pretends to take a card.
+ *
+ * WHY null AND NOT A DEMO URL. The booking stub above lands on a page that
+ * marks the booking paid, and its own header flags that as the single most
+ * dangerous thing in this file. Doing the same here would hand every owner a
+ * link that clears their own invoice without paying -- on a demo that is
+ * served from a public URL. A stub that does nothing cannot be exploited.
+ *
+ * SPECIALIST: replace the body with
+ *   const inv = await prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+ *   if (inv.status !== 'sent') return null;
+ *   const cs = await stripe.checkout.sessions.create({
+ *     mode: 'payment',
+ *     line_items: [{ price_data: { currency: 'gbp', unit_amount: inv.totalPence,
+ *                     product_data: { name: `Invoice ${inv.number}` } }, quantity: 1 }],
+ *     success_url: `${base}/invoice/${inv.token}?paid=1`,
+ *     cancel_url:  `${base}/invoice/${inv.token}`,
+ *     client_reference_id: inv.id,
+ *   });
+ *   await prisma.invoice.update({ where: { id: inv.id }, data: { stripeCheckoutSessionId: cs.id } });
+ *   return { url: cs.url! };
+ * and have the webhook call markInvoicePaid(inv.id, 'link'). The page needs no
+ * change: the button appears the moment this stops returning null.
+ */
+export async function startInvoiceCheckout(invoiceId: string): Promise<{ url: string } | null> {
+  void invoiceId;
+  return null;
+}
+
+/**
+ * Mark an invoice paid. The ONE write path for it: the trade's "paid by bank
+ * transfer / cash / card machine" button calls this today, and the Stripe
+ * webhook will call it tomorrow.
+ *
+ * **Safely callable more than once**, for the same reason as markBookingPaid:
+ * webhooks retry and people double-tap. `status: 'sent'` is in the WHERE, so a
+ * second call matches zero rows and changes nothing.
+ *
+ * A paid job leaves the board and lives in the boat's history (§4), so the
+ * card moves to `paid` in the same step.
+ */
+export async function markInvoicePaid(
+  invoiceId: string,
+  paidVia: string,
+  paidOn: string = todayInLondon(),
+): Promise<boolean> {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    select: { bookingId: true },
+  });
+  if (!invoice) return false;
+
+  const { count } = await prisma.invoice.updateMany({
+    where: { id: invoiceId, status: 'sent' },
+    data: { status: 'paid', paidOn, paidVia },
+  });
+  if (count === 0) return false;
+
+  await prisma.booking.updateMany({
+    where: { id: invoice.bookingId, column: 'invoiced' },
+    data: { column: 'paid', columnChangedAt: new Date(), paidAt: new Date() },
+  });
+  return true;
 }

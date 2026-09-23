@@ -4,6 +4,7 @@ import { formatPenceShort } from '@/lib/money';
 import { WAITING_REASON_LABEL, type WaitingReason } from '@/lib/enums';
 import { cardTitle, isOverdue, unpaidPence, type BoardCard } from '@/lib/board';
 import { formatLondonDateShort } from '@/lib/time';
+import { daysOutstanding, daysOverdue } from '@/lib/invoices';
 
 /**
  * A card shows this, and ONLY this (ANALYSIS-TRADES.md §4):
@@ -58,8 +59,23 @@ export function BoardCard({ card, today }: { card: BoardCard; today: string }) {
             </span>
           )}
 
-          {/* Money only appears when it is actually owed. */}
+          {/* Money only appears when it is actually owed -- and with how long
+              it has been owed (§4), because "19 days" is what makes a trade
+              pick up the phone and the amount alone is not. */}
           {owed > 0 && <span className="numeric text-[14px]">{formatPenceShort(owed)}</span>}
+          {card.invoices[0] && (
+            <span
+              className={`k ${
+                daysOverdue(card.invoices[0], today) > 0 ? 'font-bold text-accent-800' : 'muted'
+              }`}
+            >
+              {daysOverdue(card.invoices[0], today) > 0
+                ? `${daysOverdue(card.invoices[0], today)}d overdue`
+                : daysOutstanding(card.invoices[0], today) === 0
+                  ? 'sent today'
+                  : `${daysOutstanding(card.invoices[0], today)}d out`}
+            </span>
+          )}
         </div>
       </Link>
     </Plate>

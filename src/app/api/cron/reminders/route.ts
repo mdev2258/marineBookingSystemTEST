@@ -1,4 +1,4 @@
-import { chaseVariations, sendReminders, sweepExpiredHolds } from '@/lib/reminders';
+import { chaseInvoices, chaseVariations, sendReminders, sweepExpiredHolds } from '@/lib/reminders';
 import { sweepDueWork } from '@/lib/due-work';
 
 export const dynamic = 'force-dynamic';
@@ -24,11 +24,14 @@ export async function GET(request: Request) {
   // FINDS due work; never sends it. Emailing owners is a deliberate act on the
   // "due this month" screen, not something a timer does unattended.
   const dueWork = await sweepDueWork();
+  // Two chases per unpaid invoice, ever: on the due date and a week after.
+  const invoices = await chaseInvoices();
 
   return Response.json({
     ...reminders,
     expiredHoldsSwept: swept,
     variationsChased: variations,
     dueWork,
+    invoicesChased: invoices,
   });
 }

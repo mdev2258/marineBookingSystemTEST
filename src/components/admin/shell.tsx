@@ -45,6 +45,12 @@ export async function AdminShell({
               Due
             </Link>
             <Link
+              href="/admin/invoices"
+              className="font-condensed font-semibold tracking-tight hover:text-accent-700"
+            >
+              Invoices
+            </Link>
+            <Link
               href="/admin/enquiries"
               className="font-condensed font-semibold tracking-tight hover:text-accent-700"
             >

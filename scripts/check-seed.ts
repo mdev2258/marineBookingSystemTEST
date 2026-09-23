@@ -354,10 +354,50 @@ async function main() {
 
   const numbers = (await prisma.invoice.findMany({ select: { number: true } })).map((i) => i.number);
   check('invoice numbers are unique', new Set(numbers).size, numbers.length);
+  // Compared against the HIGHEST number, not the count. The old check used the
+  // count, which only held while the sequence had no gaps -- and a void makes a
+  // gap on purpose. After "issue 4, void 4, issue 5" the count is 4 and the
+  // highest is 5, and a counter of 5 would reissue a number already used.
+  const highest = Math.max(0, ...numbers.map((n) => Number(n.replace(/\D/g, ''))));
   check(
-    'next invoice number is past every issued one',
-    (op?.nextInvoiceNumber ?? 0) > numbers.length,
+    'the invoice counter is past the highest number ever issued',
+    (op?.nextInvoiceNumber ?? 0) > highest,
     true,
+  );
+
+  // An invoice's total must be exactly what its own lines add up to. The lines
+  // are a snapshot; if the stored total drifted from them the document would
+  // disagree with itself, and that is the invoice that gets disputed.
+  const invoicesWithLines = await prisma.invoice.findMany({
+    include: { lines: { select: { amountPence: true } } },
+  });
+  check(
+    'every invoice total equals its own lines plus VAT',
+    invoicesWithLines.filter(
+      (i) => i.lines.reduce((n, l) => n + l.amountPence, 0) + i.vatPence !== i.totalPence,
+    ).length,
+    0,
+  );
+  if (op && !op.vatRegistered) {
+    check(
+      'no invoice charges VAT for an unregistered business',
+      invoicesWithLines.filter((i) => i.vatPence !== 0).length,
+      0,
+    );
+  }
+  check(
+    'every live invoice has a link for its owner',
+    await prisma.invoice.count({ where: { status: { in: ['sent', 'paid'] }, token: null } }),
+    0,
+  );
+  // The seeded 19-days-overdue invoice has had both chases. Its stamps must say
+  // so, or the first real cron run sends them a third and fourth time.
+  check(
+    'the overdue invoice will not be chased again',
+    await prisma.invoice.count({
+      where: { status: 'sent', dueOn: { lt: today }, overdueReminderSentAt: null },
+    }),
+    0,
   );
 
   // A line total is stored, not derived, so nothing can re-total a sent

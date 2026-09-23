@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { JOB_COLUMN, type JobColumn } from '@/lib/enums';
 import { todayInLondon, type LondonDate } from '@/lib/time';
@@ -15,7 +16,7 @@ const BOARD_INCLUDE = {
   // The dot on the card. Only ever "is there one", never a list.
   variations: { where: { status: 'awaiting_owner' }, select: { id: true } },
   // £ shown on an Invoiced card is what is still owed, not what was billed.
-  invoices: { where: { status: 'sent' }, select: { totalPence: true } },
+  invoices: { where: { status: 'sent' }, select: { totalPence: true, issuedOn: true, dueOn: true } },
 } as const;
 
 export type BoardCard = Awaited<ReturnType<typeof loadBoardCards>>[number];
@@ -62,9 +63,20 @@ export function unpaidPence(card: { invoices: { totalPence: number }[] }): numbe
  *
  * Positions are sparse (100, 200, 300) so a card can later be dropped between
  * two others without renumbering the whole column.
+ *
+ * PASS `tx` WHEN CALLING FROM INSIDE A TRANSACTION. DATABASE_URL carries
+ * `connection_limit=1` for pgbouncer, so a transaction holds the only
+ * connection in the pool. A query on the global client from inside it then
+ * waits for a connection the transaction will never give back -- a
+ * deterministic deadlock that surfaces five seconds later as P2028
+ * "Transaction already closed". It took down issueInvoice the first time it
+ * ran, and had been sitting unexercised in sendEstimate since F3.
  */
-export async function nextPosition(column: string): Promise<number> {
-  const last = await prisma.booking.findFirst({
+export async function nextPosition(
+  column: string,
+  db: Prisma.TransactionClient = prisma,
+): Promise<number> {
+  const last = await db.booking.findFirst({
     where: { column },
     orderBy: { position: 'desc' },
     select: { position: true },

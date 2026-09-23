@@ -632,13 +632,17 @@ async function main() {
     bookingId: string;
     number: string;
     issuedDaysAgo: number;
-    totalPence: number;
     status: string;
     paidDaysAgo?: number;
     paidVia?: string;
     rows: { description: string; qty: number; unit: number }[];
   }) {
     const issuedOn = addDays(TODAY, -input.issuedDaysAgo);
+    // DERIVED, never typed. The first version of this seed took a hand-typed
+    // total, and two of three invoices disagreed with their own lines (£476 of
+    // lines against a stated £486) -- the exact document an owner disputes.
+    // npm run check now fails if any invoice's total drifts from its lines.
+    const totalPence = input.rows.reduce((n, r) => n + Math.round(r.qty * r.unit), 0);
     const inv = await prisma.invoice.create({
       data: {
         operatorId: op.id,
@@ -646,7 +650,7 @@ async function main() {
         number: input.number,
         issuedOn,
         dueOn: addDays(issuedOn, 14),
-        totalPence: input.totalPence,
+        totalPence,
         status: input.status,
         paidOn: input.paidDaysAgo != null ? addDays(TODAY, -input.paidDaysAgo) : null,
         paidVia: input.paidVia ?? null,
@@ -672,7 +676,6 @@ async function main() {
     bookingId: paidCurlew.id,
     number: 'HMS-0001',
     issuedDaysAgo: 30,
-    totalPence: p(295),
     status: 'paid',
     paidDaysAgo: 22,
     paidVia: 'bank',
@@ -685,7 +688,6 @@ async function main() {
     bookingId: invKittiwake.id,
     number: 'HMS-0002',
     issuedDaysAgo: 5,
-    totalPence: p(486),
     status: 'sent',
     rows: [
       { description: 'Annual engine service', qty: 4, unit: LABOUR },
@@ -694,17 +696,27 @@ async function main() {
     ],
   });
   // 33 days out on 14-day terms = 19 days overdue.
-  await invoice({
+  const marlinInvoice = await invoice({
     bookingId: invMarlin.id,
     number: 'HMS-0003',
     issuedDaysAgo: 33,
-    totalPence: p(1240),
     status: 'sent',
     rows: [
       { description: 'Forestay, 1x19 with swage', qty: 1, unit: p(410) },
       { description: 'Furling line and blocks', qty: 1, unit: p(165) },
       { description: 'Replacement aloft, no unstep', qty: 12, unit: LABOUR },
     ],
+  });
+
+  // HMS-0003 is 19 days overdue and has already had both of its chases -- the
+  // EmailLog below says so. The timestamps must agree, or the first real cron
+  // run would send them again.
+  await prisma.invoice.update({
+    where: { id: marlinInvoice.id },
+    data: {
+      dueReminderSentAt: londonDateTimeToUtc(addDays(TODAY, -19), '07:00'),
+      overdueReminderSentAt: londonDateTimeToUtc(addDays(TODAY, -12), '07:00'),
+    },
   });
 
   // -------------------------------------------------------------------------

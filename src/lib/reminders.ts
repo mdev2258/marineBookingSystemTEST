@@ -1,5 +1,9 @@
 import { prisma } from '@/lib/prisma';
-import { sendReminderEmail, sendVariationEmail } from '@/lib/notifications';
+import {
+  sendInvoiceReminderEmail,
+  sendReminderEmail,
+  sendVariationEmail,
+} from '@/lib/notifications';
 import { addDays, londonDayBounds, todayInLondon } from '@/lib/time';
 
 export type ReminderResult = { considered: number; sent: number; failed: number };
@@ -103,4 +107,61 @@ export async function chaseVariations(now: Date = new Date()): Promise<ReminderR
   }
 
   return { considered: due.length, sent, failed };
+}
+
+/**
+ * Chase unpaid invoices: one email on the due date, one a week later, then
+ * the app stops for good (§7 F6).
+ *
+ * AT MOST ONE EMAIL PER INVOICE PER NIGHT. An invoice that is already more
+ * than a week overdue the first time this sees it -- an old one, or one whose
+ * due-date run was missed -- gets the overdue email ONLY, and the due-date
+ * stamp is set alongside it so the "due today" message can never arrive after
+ * the "a week late" one. Two emails in one night reads as a system gone wrong.
+ *
+ * Each stamp is set only after a successful send, so an outage retries.
+ */
+export async function chaseInvoices(now: Date = new Date()): Promise<ReminderResult> {
+  const today = todayInLondon(now);
+  const weekAgo = addDays(today, -7);
+
+  const unpaid = await prisma.invoice.findMany({
+    where: {
+      status: 'sent',
+      dueOn: { lte: today },
+      OR: [{ dueReminderSentAt: null }, { overdueReminderSentAt: null }],
+    },
+    select: { id: true, dueOn: true, dueReminderSentAt: true, overdueReminderSentAt: true },
+  });
+
+  let sent = 0;
+  let failed = 0;
+  let considered = 0;
+
+  for (const inv of unpaid) {
+    const stage: 'due' | 'overdue' | null =
+      inv.dueOn <= weekAgo && !inv.overdueReminderSentAt
+        ? 'overdue'
+        : !inv.dueReminderSentAt
+          ? 'due'
+          : null;
+    if (!stage) continue;
+    considered++;
+
+    const result = await sendInvoiceReminderEmail(inv.id, stage);
+    if (result?.ok) {
+      await prisma.invoice.update({
+        where: { id: inv.id },
+        data:
+          stage === 'overdue'
+            ? { overdueReminderSentAt: new Date(), dueReminderSentAt: inv.dueReminderSentAt ?? new Date() }
+            : { dueReminderSentAt: new Date() },
+      });
+      sent++;
+    } else {
+      failed++;
+    }
+  }
+
+  return { considered, sent, failed };
 }
