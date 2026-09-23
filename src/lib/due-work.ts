@@ -35,6 +35,12 @@ const RIG_YEARS = 10;
 const WINTERISE_MONTH = 9;
 /** Everyone wants the same fortnight in spring, so ask early. */
 const COMMISSION_MONTH = 2;
+/**
+ * Every boat kept afloat, sail or motor, is antifouled once a year at the
+ * spring lift-out. Asked a month ahead of commissioning so the lift gets booked
+ * before the yard's hoist fills up.
+ */
+const ANTIFOUL_MONTH = 1;
 
 export type DueReminder = {
   vesselId: string;
@@ -97,7 +103,7 @@ export async function findDueWork(today: LondonDate = todayInLondon()): Promise<
   // rather than stored, because a `isSailingBoat` column would be one more
   // thing to get wrong on a boat created from a jot.
   const month = londonMonth(today);
-  if (month === WINTERISE_MONTH || month === COMMISSION_MONTH) {
+  if (month === WINTERISE_MONTH || month === COMMISSION_MONTH || month === ANTIFOUL_MONTH) {
     const vessels = await prisma.vessel.findMany({
       select: { id: true, equipment: { select: { kind: true } } },
     });
@@ -120,6 +126,15 @@ export async function findDueWork(today: LondonDate = todayInLondon()): Promise<
           kind: 'commission',
           dueOn: today,
           message: 'Spring commissioning — everyone wants the same fortnight, so worth booking early.',
+        });
+      }
+      if (month === ANTIFOUL_MONTH) {
+        due.push({
+          vesselId: v.id,
+          equipmentId: null,
+          kind: 'antifoul',
+          dueOn: today,
+          message: 'Antifoul for the coming season — worth booking the lift-out before the spring rush.',
         });
       }
     }
@@ -162,41 +177,39 @@ export async function sweepDueWork(today: LondonDate = todayInLondon()): Promise
   const due = await findDueWork(today);
   const quietSince = londonDayBounds(addMonths(today, -QUIET_MONTHS)).start;
 
-  let created = 0;
-  let alreadyOpen = 0;
+  // One read and one insert, not a count + create per due item.
+  const open = await prisma.reminder.findMany({
+    where: {
+      OR: [
+        // Still in play.
+        { status: { in: ['upcoming', 'sent'] } },
+        // Closed recently -- skipped, or said yes to. Leave them be.
+        { status: { in: ['dismissed', 'booked'] }, createdAt: { gte: quietSince } },
+      ],
+    },
+    select: { vesselId: true, kind: true, equipmentId: true },
+  });
+  const keyOf = (r: { vesselId: string; kind: string; equipmentId: string | null }) =>
+    `${r.vesselId}|${r.kind}|${r.equipmentId ?? ''}`;
+  const openKeys = new Set(open.map(keyOf));
 
-  for (const d of due) {
-    const open = await prisma.reminder.count({
-      where: {
-        vesselId: d.vesselId,
-        kind: d.kind,
-        equipmentId: d.equipmentId,
-        OR: [
-          // Still in play.
-          { status: { in: ['upcoming', 'sent'] } },
-          // Closed recently -- skipped, or said yes to. Leave them be.
-          { status: { in: ['dismissed', 'booked'] }, createdAt: { gte: quietSince } },
-        ],
-      },
-    });
+  const toCreate = due.filter((d) => {
+    const key = keyOf(d);
+    if (openKeys.has(key)) return false;
+    openKeys.add(key);
+    return true;
+  });
 
-    if (open > 0) {
-      alreadyOpen++;
-      continue;
-    }
+  const { count: created } = await prisma.reminder.createMany({
+    data: toCreate.map((d) => ({
+      vesselId: d.vesselId,
+      equipmentId: d.equipmentId,
+      kind: d.kind,
+      dueOn: d.dueOn,
+      status: 'upcoming',
+      message: d.message,
+    })),
+  });
 
-    await prisma.reminder.create({
-      data: {
-        vesselId: d.vesselId,
-        equipmentId: d.equipmentId,
-        kind: d.kind,
-        dueOn: d.dueOn,
-        status: 'upcoming',
-        message: d.message,
-      },
-    });
-    created++;
-  }
-
-  return { found: due.length, created, alreadyOpen };
+  return { found: due.length, created, alreadyOpen: due.length - toCreate.length };
 }

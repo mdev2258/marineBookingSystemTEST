@@ -4,7 +4,7 @@ import {
   sendReminderEmail,
   sendVariationEmail,
 } from '@/lib/notifications';
-import { addDays, londonDayBounds, todayInLondon } from '@/lib/time';
+import { addDays, londonDayBounds, todayInLondon, type LondonDate } from '@/lib/time';
 
 export type ReminderResult = { considered: number; sent: number; failed: number };
 
@@ -119,11 +119,23 @@ export async function chaseVariations(now: Date = new Date()): Promise<ReminderR
  * stamp is set alongside it so the "due today" message can never arrive after
  * the "a week late" one. Two emails in one night reads as a system gone wrong.
  *
- * Each stamp is set only after a successful send, so an outage retries.
+ * CLAIM, THEN SEND. The stamp is written first, guarded by `null` in the WHERE,
+ * so of two overlapping runs only one matches a row and emails; the other gets
+ * count 0 and moves on. A failed send puts the stamps back, so an outage still
+ * retries on the next run.
  */
+export function invoiceChaseStage(
+  inv: { dueOn: LondonDate; dueReminderSentAt: Date | null; overdueReminderSentAt: Date | null },
+  today: LondonDate,
+): 'due' | 'overdue' | null {
+  if (inv.dueOn > today) return null;
+  if (inv.dueOn <= addDays(today, -7) && !inv.overdueReminderSentAt) return 'overdue';
+  if (!inv.dueReminderSentAt) return 'due';
+  return null;
+}
+
 export async function chaseInvoices(now: Date = new Date()): Promise<ReminderResult> {
   const today = todayInLondon(now);
-  const weekAgo = addDays(today, -7);
 
   const unpaid = await prisma.invoice.findMany({
     where: {
@@ -139,26 +151,35 @@ export async function chaseInvoices(now: Date = new Date()): Promise<ReminderRes
   let considered = 0;
 
   for (const inv of unpaid) {
-    const stage: 'due' | 'overdue' | null =
-      inv.dueOn <= weekAgo && !inv.overdueReminderSentAt
-        ? 'overdue'
-        : !inv.dueReminderSentAt
-          ? 'due'
-          : null;
+    const stage = invoiceChaseStage(inv, today);
     if (!stage) continue;
     considered++;
 
+    const stamp = new Date();
+    const { count } = await prisma.invoice.updateMany({
+      where:
+        stage === 'overdue'
+          ? { id: inv.id, status: 'sent', overdueReminderSentAt: null }
+          : { id: inv.id, status: 'sent', dueReminderSentAt: null },
+      data:
+        stage === 'overdue'
+          ? { overdueReminderSentAt: stamp, dueReminderSentAt: inv.dueReminderSentAt ?? stamp }
+          : { dueReminderSentAt: stamp },
+    });
+    if (count === 0) continue;
+
     const result = await sendInvoiceReminderEmail(inv.id, stage);
     if (result?.ok) {
+      sent++;
+    } else {
+      // Put it back exactly as it was, so the next run retries.
       await prisma.invoice.update({
         where: { id: inv.id },
         data:
           stage === 'overdue'
-            ? { overdueReminderSentAt: new Date(), dueReminderSentAt: inv.dueReminderSentAt ?? new Date() }
-            : { dueReminderSentAt: new Date() },
+            ? { overdueReminderSentAt: null, dueReminderSentAt: inv.dueReminderSentAt }
+            : { dueReminderSentAt: null },
       });
-      sent++;
-    } else {
       failed++;
     }
   }
