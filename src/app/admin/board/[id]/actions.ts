@@ -8,7 +8,7 @@ import { isDecidedVia, isPostponeReason, LINE_KIND, type LineKind } from '@/lib/
 import { generateRebookToken } from '@/lib/reference';
 import { nextPosition } from '@/lib/board';
 import { DEFAULT_VAT_BPS, lineAmountPence, parseQty, totalsFor } from '@/lib/estimates';
-import { poundsToPence } from '@/lib/money';
+import { MAX_PENCE, poundsToPence } from '@/lib/money';
 import {
   sendEstimateEmail,
   sendInvoiceEmail,
@@ -64,8 +64,13 @@ export async function saveLines(jobId: string, formData: FormData): Promise<void
     const description = (descriptions[i] ?? '').trim();
     if (!description) continue;
 
-    const qty = parseQty(qtys[i] ?? '') ?? 1;
-    const unitPricePence = poundsToPence(prices[i] ?? '0') ?? 0;
+    // Refused, not guessed: "1,20" silently becoming £0 is a wrong estimate.
+    // A blank price is a line not priced yet, and stays £0 as before.
+    const qty = parseQty(qtys[i] ?? '');
+    const unitPricePence = (prices[i] ?? '').trim() ? poundsToPence(prices[i]!) : 0;
+    if (qty == null || unitPricePence == null || lineAmountPence(qty, unitPricePence) > MAX_PENCE) {
+      redirect(`/admin/board/${jobId}/estimate?error=line`);
+    }
     const kind = isLineKind(kinds[i] ?? '') ? kinds[i]! : 'labour';
 
     rows.push({
@@ -82,9 +87,21 @@ export async function saveLines(jobId: string, formData: FormData): Promise<void
     });
   }
 
+  // The owner's estimate page lists these lines under the SENT total. If the
+  // edit changes the money, that estimate no longer matches its own lines, so
+  // it is superseded in the same transaction and the trade sends a new one.
+  const gross = totalsFor(
+    rows.map((r) => ({ amountPence: lineAmountPence(r.qty, r.unitPricePence), vatRateBps: r.vatRateBps })),
+    op.vatRegistered,
+  ).gross;
+
   // Replace wholesale inside one transaction: a half-written line list is a
   // wrong total, and a wrong total is the thing an owner argues about.
   await prisma.$transaction([
+    prisma.estimate.updateMany({
+      where: { bookingId: jobId, status: 'sent', totalPence: { not: gross } },
+      data: { status: 'superseded', token: null },
+    }),
     prisma.quoteLineItem.deleteMany({ where: { bookingId: jobId } }),
     ...rows.map((r) =>
       prisma.quoteLineItem.create({

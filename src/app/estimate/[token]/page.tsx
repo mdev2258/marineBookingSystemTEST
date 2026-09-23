@@ -55,7 +55,9 @@ export default async function EstimatePage(props: PageProps<'/estimate/[token]'>
             <li key={l.id} className="flex justify-between gap-4 text-[14px]">
               <span>
                 {l.description}
-                {l.qty !== 1 && <span className="muted"> × {l.qty}</span>}
+                {l.qty !== 1 && (
+                  <span className="muted"> × {l.qty}{l.kind === 'labour' ? ' hrs' : ''}</span>
+                )}
               </span>
               <span className="numeric shrink-0">{formatPence(l.amountPence)}</span>
             </li>

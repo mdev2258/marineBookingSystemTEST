@@ -72,6 +72,11 @@ export default async function EstimatePage(props: PageProps<'/admin/board/[id]/e
           Add at least one line before sending it.
         </p>
       )}
+      {params.error === 'line' && (
+        <p role="alert" className="border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
+          A quantity or price couldn’t be read — use numbers like 2.5 or 1,200. Nothing was saved.
+        </p>
+      )}
 
       <form action={saveLines.bind(null, job.id)} className="mt-4">
         <table className="w-full border-collapse text-[13.5px]">
@@ -174,7 +179,7 @@ export default async function EstimatePage(props: PageProps<'/admin/board/[id]/e
         <p className="mt-1 text-[13.5px] muted">
           {live
             ? 'There is already an estimate out. Sending again supersedes it — the old one stays on record at its own price.'
-            : 'Saves a copy of the total as it is now. Editing lines afterwards will not change what they were sent.'}
+            : 'Saves a copy of the total as it is now. Changing the total afterwards withdraws it, and you send a fresh one.'}
         </p>
 
         <label htmlFor="notes" className="k mt-4 block">

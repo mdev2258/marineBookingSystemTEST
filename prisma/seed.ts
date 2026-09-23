@@ -121,7 +121,7 @@ const VESSELS: {
   { key: 'ternagain', owner: 4, name: 'Tern Again', make: 'Contessa', model: '28', year: 1984, loa: 8.5, keel: 'Fin', place: 'hard', rigYears: 4, engineMonths: 15, engineMake: 'Yanmar 2GM' },
   { key: 'bosunsbird', owner: 5, name: "Bosun's Bird", make: 'Beneteau', model: 'Oceanis 311', year: 2001, loa: 9.5, keel: 'Fin', place: 'pontoon', rigYears: 8, engineMonths: 5, engineMake: 'Volvo Penta 2020' },
   // Two motor boats: no rig at all, so nothing may assume a mast.
-  { key: 'jolyroger', owner: 9, name: 'Joly Roger', make: 'Fairline', model: 'Targa 34', year: 1999, loa: 10.4, keel: 'Planing', place: 'pontoon', engineMonths: 18, engineMake: 'Volvo Penta KAD42' },
+  { key: 'jolyroger', owner: 9, name: 'Jolly Roger', make: 'Fairline', model: 'Targa 34', year: 1999, loa: 10.4, keel: 'Planing', place: 'pontoon', engineMonths: 18, engineMake: 'Volvo Penta KAD42' },
   { key: 'harbourpilot', owner: 13, name: 'Harbour Pilot', make: 'Orkney', model: 'Fastliner 19', year: 2004, loa: 5.8, keel: 'Planing', place: 'hard', engineMonths: 20, engineMake: 'Mariner 60' },
 ];
 
@@ -162,7 +162,7 @@ async function main() {
       name: 'Harbourside Marine Services',
       slug: 'harbourside-marine-services',
       ownerName: 'Dave Pascoe',
-      contactEmail: 'dave@example.com',
+      contactEmail: 'dave@harbourside.example',
       phone: '07700 900001',
       tradeTypes: 'rigging,engineering',
       // Under the threshold, so the word VAT must not appear anywhere in the
@@ -172,7 +172,7 @@ async function main() {
       invoicePrefix: 'HMS-',
       nextInvoiceNumber: 4, // three invoices are seeded below
       paymentTermsDays: 14,
-      bankDetailsText: 'Harbourside Marine Services · Sort 00-00-00 · Acct 00000000',
+      bankDetailsText: 'Harbourside Marine Services · Sort 12-34-56 · Acct 12345678',
     },
   });
 
@@ -363,7 +363,7 @@ async function main() {
 
   // --- Estimate sent
   const estGannet = await job({ vessel: 'gannet', column: 'estimate_sent', title: 'Standing rigging replacement', quotedPence: p(4180), daysInColumn: 4 });
-  const estThistle = await job({ vessel: 'thistle', column: 'estimate_sent', title: 'Seacock replacement, 4 off', quotedPence: p(690), daysInColumn: 2 });
+  const estThistle = await job({ vessel: 'thistle', column: 'estimate_sent', title: 'Seacock replacement, 4 off', quotedPence: p(642), daysInColumn: 2 });
 
   // --- Booked
   const bookedSalt = await job({ vessel: 'saltwind', column: 'booked', title: 'Engine service + impeller', plannedOn: addDays(TODAY, 3), quotedPence: p(340), acceptedDaysAgo: 2, daysInColumn: 2 });
@@ -387,7 +387,7 @@ async function main() {
   await job({ vessel: 'redshank', column: 'waiting', title: 'Chase the surveyor for the report', waitingReason: 'other', waitingUntil: addDays(TODAY, 3), daysInColumn: 2 });
 
   // --- On it
-  const onItHalcyon = await job({ vessel: 'halcyon', column: 'on_it', title: 'Keel bolts — drop, inspect, replace', quotedPence: p(2450), acceptedDaysAgo: 12, daysInColumn: 5 });
+  const onItHalcyon = await job({ vessel: 'halcyon', column: 'on_it', title: 'Keel bolts — drop, inspect, replace', quotedPence: p(2840), acceptedDaysAgo: 12, daysInColumn: 5 });
   await job({ vessel: 'seaurchin', column: 'on_it', title: 'Furler service — bench strip', place: 'workshop', quotedPence: p(430), acceptedDaysAgo: 4, daysInColumn: 2 });
 
   // --- Done, to invoice
@@ -438,6 +438,10 @@ async function main() {
   await lines(estThistle.id, [
     { kind: 'parts', description: 'Bronze seacocks, 4 off', qty: 4, unit: p(78) },
     { kind: 'labour', description: 'Remove, re-bed and refit', qty: 6, unit: LABOUR },
+  ]);
+  await lines(estHalcyonRig.id, [
+    { kind: 'labour', description: 'Rig inspection aloft, written report', qty: 3, unit: LABOUR },
+    { kind: 'parts', description: 'Split pins, tape and sundries', qty: 1, unit: p(15) },
   ]);
   await lines(onItHalcyon.id, [
     { kind: 'labour', description: 'Drop keel, inspect bolts, clean pocket', qty: 18, unit: LABOUR, done: true },
@@ -496,7 +500,7 @@ async function main() {
     data: {
       bookingId: estThistle.id,
       status: 'sent',
-      totalPence: p(690),
+      totalPence: p(642),
       sentAt: londonDateTimeToUtc(addDays(TODAY, -2), '11:05'),
       token: generateRebookToken(),
     },
@@ -515,7 +519,7 @@ async function main() {
     data: {
       bookingId: onItHalcyon.id,
       status: 'accepted',
-      totalPence: p(2450),
+      totalPence: p(2840),
       sentAt: londonDateTimeToUtc(addDays(TODAY, -14), '15:00'),
       decidedAt: londonDateTimeToUtc(addDays(TODAY, -12), '08:15'),
       decidedVia: 'phone',
@@ -794,7 +798,7 @@ async function main() {
   }
 
   await logged({ type: 'estimate', vesselKey: 'gannet', bookingId: estGannet.id, subject: 'Your estimate for Gannet — £4,180.00', daysAgo: 4 });
-  await logged({ type: 'estimate', vesselKey: 'thistle', bookingId: estThistle.id, subject: 'Your estimate for Thistle — £690.00', daysAgo: 2 });
+  await logged({ type: 'estimate', vesselKey: 'thistle', bookingId: estThistle.id, subject: 'Your estimate for Thistle — £642.00', daysAgo: 2 });
   await logged({ type: 'variation', vesselKey: 'halcyon', bookingId: onItHalcyon.id, subject: 'Halcyon — extra work found: galley seacock', daysAgo: 1 });
   await logged({ type: 'visit_postponed', vesselKey: 'halcyon', bookingId: waitCrane.id, subject: 'Halcyon — Thursday postponed, weather', daysAgo: 2 });
   await logged({ type: 'invoice', vesselKey: 'kittiwake', bookingId: invKittiwake.id, subject: 'Invoice HMS-0002 — Kittiwake', daysAgo: 5 });

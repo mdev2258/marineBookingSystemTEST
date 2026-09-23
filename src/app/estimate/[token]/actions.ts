@@ -40,12 +40,16 @@ export async function decideEstimate(token: string, formData: FormData): Promise
   if (count === 1 && accepted) {
     await prisma.booking.update({
       where: { id: estimate.bookingId },
+      data: { acceptedAt: new Date(), quotedPence: estimate.totalPence },
+    });
+    // Only a card still waiting on this answer moves. One the trade has since
+    // put On it, or in Waiting, stays where they put it.
+    await prisma.booking.updateMany({
+      where: { id: estimate.bookingId, column: 'estimate_sent' },
       data: {
         column: 'booked',
         columnChangedAt: new Date(),
         position: await nextPosition('booked'),
-        acceptedAt: new Date(),
-        quotedPence: estimate.totalPence,
       },
     });
   }

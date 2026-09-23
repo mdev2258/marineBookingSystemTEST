@@ -352,7 +352,7 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
           <p className="k">Found something?</p>
 
           {badVariation && (
-            <p className="mt-2 text-[13.5px] font-semibold text-accent-800">
+            <p id="variation-error" role="alert" className="mt-2 text-[13.5px] font-semibold text-accent-800">
               Needs at least what it is and what it costs.
             </p>
           )}
@@ -363,6 +363,8 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
           <input
             id="vdesc"
             name="description"
+            aria-invalid={badVariation || undefined}
+            aria-describedby={badVariation ? 'variation-error' : undefined}
             type="text"
             placeholder="Galley seacock seized"
             className="mt-1 min-h-12 w-full border border-divider bg-bg px-2 text-[15px]"
@@ -385,6 +387,8 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
           <input
             id="vamount"
             name="amount"
+            aria-invalid={badVariation || undefined}
+            aria-describedby={badVariation ? 'variation-error' : undefined}
             type="text"
             inputMode="decimal"
             placeholder="140"
@@ -415,7 +419,7 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
           <h2 className="k border-b border-divider pb-2">Invoice</h2>
 
           {params.error === 'nothing_to_bill' && (
-            <p className="mt-3 border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
+            <p id="invoice-error" role="alert" className="mt-3 border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
               Nothing is ticked off yet. Tick the lines that are done on the estimate first.
             </p>
           )}
@@ -585,7 +589,7 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
         <form action={addPartOrder.bind(null, job.id)} className="mt-4 border border-divider p-3">
           <p className="k">Order a part</p>
           {params.error === 'part' && (
-            <p className="mt-2 text-[13.5px] font-semibold text-accent-800">
+            <p id="part-error" role="alert" className="mt-2 text-[13.5px] font-semibold text-accent-800">
               Needs at least what the part is.
             </p>
           )}
@@ -595,6 +599,8 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
               <input
                 id="item"
                 name="item"
+                aria-invalid={params.error === 'part' || undefined}
+                aria-describedby={params.error === 'part' ? 'part-error' : undefined}
                 type="text"
                 placeholder="Cutless bearing 25mm"
                 className="mt-1 min-h-12 w-full border border-divider bg-bg px-2 text-[15px]"
@@ -694,12 +700,16 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
               </p>
 
               {params.error === 'postpone' && (
-                <p className="mt-2 text-[13.5px] font-semibold text-accent-800">
+                <p id="postpone-error" role="alert" className="mt-2 text-[13.5px] font-semibold text-accent-800">
                   Pick a reason — the owner is going to ask.
                 </p>
               )}
 
-              <fieldset className="mt-3">
+              <fieldset
+                className="mt-3"
+                aria-invalid={params.error === 'postpone' || undefined}
+                aria-describedby={params.error === 'postpone' ? 'postpone-error' : undefined}
+              >
                 <legend className="sr-only">Why</legend>
                 <div className="flex flex-wrap gap-2">
                   {POSTPONE_REASON.map((r) => (
@@ -765,7 +775,7 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
           <form action={planVisit.bind(null, job.id)} className="mt-4 border border-divider p-3">
             <p className="k">Put a day in</p>
             {params.error === 'visit' && (
-              <p className="mt-2 text-[13.5px] font-semibold text-accent-800">
+              <p id="visit-error" role="alert" className="mt-2 text-[13.5px] font-semibold text-accent-800">
                 Needs a date.
               </p>
             )}
@@ -775,6 +785,8 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
                 <input
                   id="date"
                   name="date"
+                  aria-invalid={params.error === 'visit' || undefined}
+                  aria-describedby={params.error === 'visit' ? 'visit-error' : undefined}
                   type="date"
                   className="mt-1 min-h-12 border border-divider bg-bg px-2 text-[15px]"
                 />
@@ -817,7 +829,16 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
 
       <h2 className="k mt-8 border-b border-divider pb-2">Move to</h2>
       <div className="mt-4 flex flex-wrap gap-2">
-        {JOB_COLUMN.filter((c) => c !== column && c !== 'waiting' && c !== 'jotted').map((c) => (
+        {/* Estimate sent and Invoiced are reached by sending the document, not
+            by a button: a card there with nothing behind it is a lie. */}
+        {JOB_COLUMN.filter(
+          (c) =>
+            c !== column &&
+            c !== 'waiting' &&
+            c !== 'jotted' &&
+            (c !== 'estimate_sent' || liveEstimate) &&
+            (c !== 'invoiced' || liveInvoice),
+        ).map((c) => (
           <form key={c} action={moveJob.bind(null, job.id)}>
             <input type="hidden" name="column" value={c} />
             <button
@@ -845,12 +866,16 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
         </p>
 
         {missingReason && (
-          <p className="mt-3 text-[13.5px] font-semibold text-accent-800">
+          <p id="reason-error" role="alert" className="mt-3 text-[13.5px] font-semibold text-accent-800">
             Pick what it&rsquo;s waiting on first.
           </p>
         )}
 
-        <fieldset className="mt-4">
+        <fieldset
+          className="mt-4"
+          aria-invalid={missingReason || undefined}
+          aria-describedby={missingReason ? 'reason-error' : undefined}
+        >
           <legend className="sr-only">What it is waiting on</legend>
           <div className="flex flex-wrap gap-2">
             {WAITING_REASON.map((r) => (

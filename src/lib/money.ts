@@ -39,11 +39,18 @@ export function balancePence(total: number, deposit: number): number {
  * can report it rather than writing NaN to a column.
  */
 export function poundsToPence(input: string): number | null {
-  const trimmed = input.trim().replace(/^£/, '');
+  let trimmed = input.trim().replace(/^£/, '');
+  // "1,200" is how people write money. Only well-formed thousands groups, so
+  // "1,20" (a continental decimal, or a typo) is still refused, not guessed.
+  if (/^\d{1,3}(,\d{3})+(\.\d{1,2})?$/.test(trimmed)) trimmed = trimmed.replace(/,/g, '');
   if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null;
   // parseFloat('95.50') * 100 is 9550.000000000002; round before it becomes a column.
-  return Math.round(parseFloat(trimmed) * 100);
+  const pence = Math.round(parseFloat(trimmed) * 100);
+  return pence <= MAX_PENCE ? pence : null;
 }
+
+/** Postgres Int. Anything bigger is a typo, and would otherwise be a 500. */
+export const MAX_PENCE = 2_147_483_647;
 
 /** 9500 -> "95.00", for prefilling a number input. */
 export function penceToPoundsInput(pence: number): string {

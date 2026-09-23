@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/app/admin/actions';
 import { poundsToPence } from '@/lib/money';
@@ -76,9 +77,6 @@ export async function sendQuote(
 
   const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
   if (!booking) return { error: 'That job no longer exists.' };
-  if (!['enquiry', 'quoted'].includes(booking.status)) {
-    return { error: 'That job has moved on and cannot be re-quoted here.' };
-  }
 
   const session = await prisma.session.findUnique({ where: { id: sessionId } });
   if (!session || session.status !== 'scheduled' || session.startsAt <= new Date()) {
@@ -92,27 +90,42 @@ export async function sendQuote(
 
   // One transaction: a quote whose lines and total disagreed, because the
   // second write failed, would be worse than no quote at all.
-  await prisma.$transaction(async (tx) => {
-    await tx.quoteLineItem.deleteMany({ where: { bookingId } });
-    await tx.booking.update({
-      where: { id: bookingId },
-      data: {
-        sessionId: session.id,
-        quotedPence,
-        quoteNotes: quoteNotes || null,
-        quotedAt: new Date(),
-        status: 'quoted',
-        // A fresh token every time it is quoted, so a superseded quote's link
-        // cannot be used to accept an old price.
-        quoteToken: generateRebookToken(),
-        // Still nothing owed: the deposit appears when they accept.
-        depositPence: null,
-        lineItems: {
-          create: lines.map((line, i) => ({ ...line, sortOrder: i })),
+  //
+  // The status AND the token this request read are in the WHERE, and the write
+  // rotates the token: two submits of one form match one row between them, so
+  // the owner gets one email. No match throws P2025, rolling back the delete.
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.quoteLineItem.deleteMany({ where: { bookingId } });
+      await tx.booking.update({
+        where: {
+          id: bookingId,
+          status: { in: ['enquiry', 'quoted'] },
+          AND: [{ quoteToken: booking.quoteToken }],
         },
-      },
+        data: {
+          sessionId: session.id,
+          quotedPence,
+          quoteNotes: quoteNotes || null,
+          quotedAt: new Date(),
+          status: 'quoted',
+          // A fresh token every time it is quoted, so a superseded quote's link
+          // cannot be used to accept an old price.
+          quoteToken: generateRebookToken(),
+          // Still nothing owed: the deposit appears when they accept.
+          depositPence: null,
+          lineItems: {
+            create: lines.map((line, i) => ({ ...line, sortOrder: i })),
+          },
+        },
+      });
     });
-  });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+      return { error: 'That job has moved on and cannot be re-quoted here.' };
+    }
+    throw e;
+  }
 
   await sendQuoteEmail(bookingId);
 

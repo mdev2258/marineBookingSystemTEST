@@ -177,6 +177,14 @@ export async function moveJob(id: string, formData: FormData): Promise<void> {
   if (column === 'waiting' && !isWaitingReason(rawReason)) {
     redirect(`/admin/board/${id}?error=reason#waiting`);
   }
+  // These two columns are claims about paperwork; the job page hides the
+  // buttons, this stops a crafted POST.
+  if (column === 'estimate_sent' && !(await prisma.estimate.count({ where: { bookingId: id, status: 'sent' } }))) {
+    redirect(`/admin/board/${id}?error=column`);
+  }
+  if (column === 'invoiced' && !(await prisma.invoice.count({ where: { bookingId: id, status: { in: ['sent', 'paid'] } } }))) {
+    redirect(`/admin/board/${id}?error=column`);
+  }
 
   await prisma.booking.update({
     where: { id },

@@ -29,6 +29,8 @@ import { JOB_COLUMN, WAITING_REASON } from '../src/lib/enums';
 import { lineAmountPence, parseQty, totalsFor } from '../src/lib/estimates';
 import { buildTimeline } from '../src/lib/timeline';
 import { findDueWork } from '../src/lib/due-work';
+import { invoiceChaseStage } from '../src/lib/reminders';
+import { poundsToPence } from '../src/lib/money';
 
 const prisma = new PrismaClient();
 
@@ -81,6 +83,37 @@ async function main() {
     variations: [],
   });
   check('timeline is newest first and records HOW', tl[0]?.label, 'Estimate accepted — Agreed by phone');
+
+  // The one parser every typed price goes through. null means "tell the
+  // trade", never "store £0".
+  for (const [input, expected] of [
+    ['95', 9500], ['95.50', 9550], ['£95.5', 9550], ['1,200', 120000], ['12,345.67', 1234567],
+    ['', null], ['abc', null], ['1,20', null], ['-5', null], ['1.234', null],
+    ['21474836.47', 2147483647], ['21474836.48', null], ['99999999999', null],
+  ] as const) {
+    check(`poundsToPence(${JSON.stringify(input)})`, poundsToPence(input), expected);
+  }
+  // Zero-rated is 0, not "missing": a registered business with a 0% line pays
+  // VAT on the other line only.
+  check(
+    'VAT: registered, one 0-rated line',
+    JSON.stringify(totalsFor([{ amountPence: 10000, vatRateBps: 2000 }, { amountPence: 5000, vatRateBps: 0 }], true)),
+    JSON.stringify({ net: 15000, vat: 2000, gross: 17000 }),
+  );
+
+  // --- invoice chasing: the stage rule, pure ---------------------------------
+  {
+    const T = '2026-09-23', at = new Date();
+    const s = (dueOn: string, due: Date | null, over: Date | null) =>
+      invoiceChaseStage({ dueOn, dueReminderSentAt: due, overdueReminderSentAt: over }, T);
+    check('not yet due: no chase', s('2026-09-24', null, null), null);
+    check('due today: due chase', s('2026-09-23', null, null), 'due');
+    check('due chase sent: nothing more that night', s('2026-09-23', at, null), null);
+    check('6 days late: still waiting for the overdue one', s('2026-09-17', at, null), null);
+    check('7 days late: overdue chase', s('2026-09-16', at, null), 'overdue');
+    check('first seen a week late: overdue only, never due', s('2026-09-01', null, null), 'overdue');
+    check('both sent: the app stops', s('2026-09-01', at, at), null);
+  }
 
   // --- the business --------------------------------------------------------
   const op = await prisma.operator.findFirst();
@@ -305,6 +338,11 @@ async function main() {
     february.filter((d) => d.kind === 'commission').length,
     await prisma.vessel.count(),
   );
+  check(
+    'January asks every boat about antifoul',
+    (await findDueWork(`${Number(today.slice(0, 4)) + 1}-01-10`)).filter((d) => d.kind === 'antifoul').length,
+    await prisma.vessel.count(),
+  );
 
   // The regression that made "Skip" last until midnight: a boat asked the same
   // question again while a recent answer to it still stands. Read-only, so it
@@ -407,6 +445,21 @@ async function main() {
   const drifted = lines.filter((l) => l.amountPence !== Math.round(l.qty * l.unitPricePence));
   check('no line total has drifted from qty x unit price', drifted.length, 0);
 
+  // The owner's estimate page lists the job's lines under the SENT total. If
+  // they disagree, the owner is looking at a sum that does not add up.
+  const sentEstimates = await prisma.estimate.findMany({
+    where: { status: 'sent' },
+    select: { totalPence: true, booking: { select: { title: true, lineItems: true } } },
+  });
+  const unsummed = sentEstimates.filter(
+    (e) => totalsFor(e.booking.lineItems, op?.vatRegistered ?? false).gross !== e.totalPence,
+  );
+  check(
+    `every sent estimate equals the sum of its lines${unsummed.length ? ` (${unsummed.map((e) => e.booking.title).join('; ')})` : ''}`,
+    unsummed.length,
+    0,
+  );
+
   // --- the boat file and its records (§7 F2) --------------------------------
   // Every boat needs a way in for its owner, or "what the owner sees" is a
   // dead link on some boats and not others -- found in front of a prospect.
@@ -454,8 +507,9 @@ async function main() {
   // --- freshness -----------------------------------------------------------
   // The seed is positioned relative to "now". If it was seeded yesterday and
   // left overnight, the dates above have all slid by a day.
-  const newest = await prisma.booking.findFirst({ orderBy: { createdAt: 'desc' } });
-  const seededToday = newest ? newest.createdAt >= new Date(`${today}T00:00:00Z`) : false;
+  // The business row, not a booking: the seed backdates every booking's
+  // createdAt, so the newest booking is always "before today".
+  const seededToday = op ? op.createdAt >= new Date(`${today}T00:00:00Z`) : false;
   if (!seededToday) {
     console.log('WARN  seeded before today — re-run `npm run seed` before the demo');
   }
