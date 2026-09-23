@@ -115,7 +115,15 @@ export async function sendQuote(
           // Still nothing owed: the deposit appears when they accept.
           depositPence: null,
           lineItems: {
-            create: lines.map((line, i) => ({ ...line, sortOrder: i })),
+            // The quote form takes a line total, not qty x unit, so store qty 1
+            // and keep whatever quantity was typed as words in the description.
+            create: lines.map((line, i) => ({
+              description: line.quantity ? `${line.description} (${line.quantity})` : line.description,
+              qty: 1,
+              unitPricePence: line.amountPence,
+              amountPence: line.amountPence,
+              sortOrder: i,
+            })),
           },
         },
       });

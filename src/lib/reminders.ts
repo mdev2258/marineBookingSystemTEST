@@ -168,11 +168,17 @@ export async function chaseInvoices(now: Date = new Date()): Promise<ReminderRes
     });
     if (count === 0) continue;
 
-    const result = await sendInvoiceReminderEmail(inv.id, stage);
-    if (result?.ok) {
+    let ok = false;
+    try {
+      ok = !!(await sendInvoiceReminderEmail(inv.id, stage))?.ok;
+    } catch (e) {
+      console.error('invoice chase failed', inv.id, e);
+    }
+    if (ok) {
       sent++;
     } else {
-      // Put it back exactly as it was, so the next run retries.
+      // Put it back exactly as it was, so the next run retries -- including
+      // when the send threw, or the claim would silently eat that stage.
       await prisma.invoice.update({
         where: { id: inv.id },
         data:

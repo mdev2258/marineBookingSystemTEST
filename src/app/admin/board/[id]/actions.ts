@@ -97,7 +97,7 @@ export async function saveLines(jobId: string, formData: FormData): Promise<void
 
   // Replace wholesale inside one transaction: a half-written line list is a
   // wrong total, and a wrong total is the thing an owner argues about.
-  await prisma.$transaction([
+  const [withdrawn] = await prisma.$transaction([
     prisma.estimate.updateMany({
       where: { bookingId: jobId, status: 'sent', totalPence: { not: gross } },
       data: { status: 'superseded', token: null },
@@ -122,7 +122,7 @@ export async function saveLines(jobId: string, formData: FormData): Promise<void
 
   revalidatePath(`/admin/board/${jobId}/estimate`);
   revalidatePath(`/admin/board/${jobId}`);
-  redirect(`/admin/board/${jobId}/estimate?saved=1`);
+  redirect(`/admin/board/${jobId}/estimate?saved=${withdrawn.count ? 'withdrawn' : '1'}`);
 }
 
 /**

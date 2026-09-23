@@ -20,8 +20,8 @@ const SPARE_ROWS = 3;
  *
  * The line list belongs to the JOB, not to the estimate: this is the same
  * list the trade later ticks off as work gets done, and that the invoice
- * snapshots. Sending an estimate takes a copy of its total at that moment,
- * which is why editing here afterwards cannot change what the owner was sent.
+ * snapshots. Sending an estimate takes a copy of its total at that moment;
+ * changing the total afterwards withdraws it (saveLines) rather than drift.
  *
  * No JavaScript: the form always renders three spare rows, and rows with no
  * description are dropped on save. An "Add row" button would need a client
@@ -66,6 +66,11 @@ export default async function EstimatePage(props: PageProps<'/admin/board/[id]/e
 
       {params.saved === '1' && (
         <p className="border border-divider bg-neutral-100 p-3 text-[13.5px]">Lines saved.</p>
+      )}
+      {params.saved === 'withdrawn' && (
+        <p role="status" className="border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
+          Lines saved. The total changed, so the estimate the owner had is withdrawn — send them a fresh one below.
+        </p>
       )}
       {params.error === 'empty' && (
         <p className="border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
