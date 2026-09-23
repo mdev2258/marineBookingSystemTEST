@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
-import { nextPosition } from '@/lib/board';
+import { bookAcceptedEstimate } from '@/lib/board';
 
 /**
  * The owner answers their estimate.
@@ -37,22 +37,7 @@ export async function decideEstimate(token: string, formData: FormData): Promise
     },
   });
 
-  if (count === 1 && accepted) {
-    await prisma.booking.update({
-      where: { id: estimate.bookingId },
-      data: { acceptedAt: new Date(), quotedPence: estimate.totalPence },
-    });
-    // Only a card still waiting on this answer moves. One the trade has since
-    // put On it, or in Waiting, stays where they put it.
-    await prisma.booking.updateMany({
-      where: { id: estimate.bookingId, column: 'estimate_sent' },
-      data: {
-        column: 'booked',
-        columnChangedAt: new Date(),
-        position: await nextPosition('booked'),
-      },
-    });
-  }
+  if (count === 1 && accepted) await bookAcceptedEstimate(estimate.bookingId, estimate.totalPence);
 
   // The board is the trade's screen; it must reflect this before they next
   // look at it, which may be seconds from now on a different phone.

@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/app/admin/actions';
 import { isDecidedVia, isPostponeReason, LINE_KIND, type LineKind } from '@/lib/enums';
 import { generateRebookToken } from '@/lib/reference';
-import { nextPosition } from '@/lib/board';
+import { bookAcceptedEstimate, nextPosition } from '@/lib/board';
 import { DEFAULT_VAT_BPS, lineAmountPence, parseQty, totalsFor } from '@/lib/estimates';
 import { MAX_PENCE, poundsToPence } from '@/lib/money';
 import {
@@ -231,18 +231,7 @@ export async function recordEstimateDecision(
     },
   });
 
-  if (count === 1 && accepted) {
-    await prisma.booking.update({
-      where: { id: estimate.bookingId },
-      data: {
-        column: 'booked',
-        columnChangedAt: new Date(),
-        position: await nextPosition('booked'),
-        acceptedAt: new Date(),
-        quotedPence: estimate.totalPence,
-      },
-    });
-  }
+  if (count === 1 && accepted) await bookAcceptedEstimate(estimate.bookingId, estimate.totalPence);
 
   revalidatePath('/admin/board');
   redirect(`/admin/board/${estimate.bookingId}`);

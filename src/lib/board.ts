@@ -85,6 +85,33 @@ export async function nextPosition(
 }
 
 /**
+ * An estimate was accepted -- by the owner's link or by phone. Record the price,
+ * and move the card to Booked only if it was waiting on that answer: in
+ * Estimate sent, or parked in Waiting on the owner's decision. A card the trade
+ * has since put On it (or anywhere else) stays where they put it; the column
+ * is in the WHERE so that holds even against a concurrent move.
+ */
+export async function bookAcceptedEstimate(bookingId: string, totalPence: number): Promise<void> {
+  await prisma.booking.update({
+    where: { id: bookingId },
+    data: { acceptedAt: new Date(), quotedPence: totalPence },
+  });
+  await prisma.booking.updateMany({
+    where: {
+      id: bookingId,
+      OR: [{ column: 'estimate_sent' }, { column: 'waiting', waitingReason: 'owner_decision' }],
+    },
+    data: {
+      column: 'booked',
+      columnChangedAt: new Date(),
+      position: await nextPosition('booked'),
+      waitingReason: null,
+      waitingUntil: null,
+    },
+  });
+}
+
+/**
  * The card's one line. A sorted job has a title; a raw jot has only the text
  * the trade typed, so the first line of it stands in until it is sorted.
  */
