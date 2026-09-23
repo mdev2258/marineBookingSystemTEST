@@ -591,6 +591,9 @@ model Reminder {
   /// Set when the owner clicked through and a card was raised.
   bookingId String?
 
+  /// When it was dismissed or booked; the 11-month quiet period counts from here.
+  /// Null on rows closed before the column existed -- those fall back to createdAt.
+  closedAt  DateTime?
   createdAt DateTime @default(now())
 
   vessel    Vessel     @relation(fields: [vesselId], references: [id], onDelete: Cascade)

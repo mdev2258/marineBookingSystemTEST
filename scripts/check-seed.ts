@@ -349,13 +349,13 @@ async function main() {
   // catches the bug on any database the nightly sweep has actually run against.
   const recentClosedCutoff = new Date(Date.now() - 330 * 86_400_000);
   const allReminders = await prisma.reminder.findMany({
-    select: { vesselId: true, kind: true, equipmentId: true, status: true, createdAt: true },
+    select: { vesselId: true, kind: true, equipmentId: true, status: true, createdAt: true, closedAt: true },
   });
   const keyOf = (r: { vesselId: string; kind: string; equipmentId: string | null }) =>
     `${r.vesselId}|${r.kind}|${r.equipmentId ?? ''}`;
   const recentlyClosed = new Set(
     allReminders
-      .filter((r) => (r.status === 'dismissed' || r.status === 'booked') && r.createdAt >= recentClosedCutoff)
+      .filter((r) => (r.status === 'dismissed' || r.status === 'booked') && (r.closedAt ?? r.createdAt) >= recentClosedCutoff)
       .map(keyOf),
   );
   check(

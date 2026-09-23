@@ -67,7 +67,7 @@ export async function dismissReminder(id: string): Promise<void> {
 
   await prisma.reminder.updateMany({
     where: { id, status: 'upcoming' },
-    data: { status: 'dismissed' },
+    data: { status: 'dismissed', closedAt: new Date() },
   });
 
   revalidatePath('/admin/reminders');

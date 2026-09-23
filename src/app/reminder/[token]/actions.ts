@@ -29,7 +29,7 @@ export async function bookFromReminder(token: string): Promise<void> {
 
   const { count } = await prisma.reminder.updateMany({
     where: { token, status: 'sent' },
-    data: { status: 'booked', token: null },
+    data: { status: 'booked', token: null, closedAt: new Date() },
   });
   if (count === 0) redirect('/reminder/done');
 

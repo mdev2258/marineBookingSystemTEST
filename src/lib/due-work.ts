@@ -183,8 +183,10 @@ export async function sweepDueWork(today: LondonDate = todayInLondon()): Promise
       OR: [
         // Still in play.
         { status: { in: ['upcoming', 'sent'] } },
-        // Closed recently -- skipped, or said yes to. Leave them be.
-        { status: { in: ['dismissed', 'booked'] }, createdAt: { gte: quietSince } },
+        // Closed recently -- skipped, or said yes to. Leave them be. Counted
+        // from the answer, not the ask; rows older than closedAt use createdAt.
+        { status: { in: ['dismissed', 'booked'] }, closedAt: { gte: quietSince } },
+        { status: { in: ['dismissed', 'booked'] }, closedAt: null, createdAt: { gte: quietSince } },
       ],
     },
     select: { vesselId: true, kind: true, equipmentId: true },
