@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import {
   addMonths,
   addYears,
+  londonDayBounds,
   londonMonth,
   todayInLondon,
   yearsBetween,
@@ -130,6 +131,22 @@ export async function findDueWork(today: LondonDate = todayInLondon()): Promise<
 export type SweepResult = { found: number; created: number; alreadyOpen: number };
 
 /**
+ * How long a CLOSED reminder -- skipped by the trade, or answered "yes" by the
+ * owner -- keeps the same question from being asked again.
+ *
+ * Eleven months, not twelve, so the seasonal ones come round again: a
+ * winterisation reminder closed in late September must not block the next
+ * one in early September a year later.
+ *
+ * Without this, "Skip" lasted until midnight. The sweep runs nightly and the
+ * rigging is still old tomorrow, so a skipped boat was back on the list by
+ * morning -- and an owner who said "yes, book me in" was asked again the
+ * following week, because the rig stays old until the job is DONE. That is
+ * the difference between a reminder and spam.
+ */
+const QUIET_MONTHS = 11;
+
+/**
  * Write the ones that are not already on the list.
  *
  * IDEMPOTENT BY DESIGN, and it has to be: this runs nightly, and the rules
@@ -137,12 +154,13 @@ export type SweepResult = { found: number; created: number; alreadyOpen: number 
  * somebody does something about it. Without the open-reminder check the trade
  * would open the screen to forty copies of the same boat and stop opening it.
  *
- * "Open" means upcoming or sent. A dismissed or booked reminder deliberately
- * does NOT block a future one -- next year the rigging is a year older and it
- * is a fair question again.
+ * "Open" means upcoming or sent, OR closed (skipped, or said yes to) within
+ * the last QUIET_MONTHS. After that the question is fair again -- the rigging
+ * is a year older and the owner may have changed their mind.
  */
 export async function sweepDueWork(today: LondonDate = todayInLondon()): Promise<SweepResult> {
   const due = await findDueWork(today);
+  const quietSince = londonDayBounds(addMonths(today, -QUIET_MONTHS)).start;
 
   let created = 0;
   let alreadyOpen = 0;
@@ -153,7 +171,12 @@ export async function sweepDueWork(today: LondonDate = todayInLondon()): Promise
         vesselId: d.vesselId,
         kind: d.kind,
         equipmentId: d.equipmentId,
-        status: { in: ['upcoming', 'sent'] },
+        OR: [
+          // Still in play.
+          { status: { in: ['upcoming', 'sent'] } },
+          // Closed recently -- skipped, or said yes to. Leave them be.
+          { status: { in: ['dismissed', 'booked'] }, createdAt: { gte: quietSince } },
+        ],
       },
     });
 

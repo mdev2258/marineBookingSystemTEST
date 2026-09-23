@@ -132,12 +132,20 @@ export default async function RemindersPage(props: PageProps<'/admin/reminders'>
             })}
           </ul>
 
+          {/* No count on the button. It is rendered once on the server and a
+              checkbox cannot change it without JavaScript, so after unticking
+              one owner it would promise ten emails and send nine. The true
+              number arrives straight after, in "9 owners asked" -- which is
+              the line the demo is actually for. */}
           <button
             type="submit"
             className="k mt-5 min-h-14 w-full bg-accent-900 px-6 text-bg hover:bg-ink sm:w-auto"
           >
-            Ask {sendable.length} owner{sendable.length === 1 ? '' : 's'} if they want booking in
+            Ask the ticked owners if they want booking in
           </button>
+          <p className="mt-2 text-[12.5px] muted">
+            {sendable.length} ticked to start with. Untick anyone you&rsquo;d rather not ask.
+          </p>
         </form>
       )}
 

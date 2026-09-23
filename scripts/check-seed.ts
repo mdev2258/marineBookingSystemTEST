@@ -306,6 +306,26 @@ async function main() {
     await prisma.vessel.count(),
   );
 
+  // The regression that made "Skip" last until midnight: a boat asked the same
+  // question again while a recent answer to it still stands. Read-only, so it
+  // catches the bug on any database the nightly sweep has actually run against.
+  const recentClosedCutoff = new Date(Date.now() - 330 * 86_400_000);
+  const allReminders = await prisma.reminder.findMany({
+    select: { vesselId: true, kind: true, equipmentId: true, status: true, createdAt: true },
+  });
+  const keyOf = (r: { vesselId: string; kind: string; equipmentId: string | null }) =>
+    `${r.vesselId}|${r.kind}|${r.equipmentId ?? ''}`;
+  const recentlyClosed = new Set(
+    allReminders
+      .filter((r) => (r.status === 'dismissed' || r.status === 'booked') && r.createdAt >= recentClosedCutoff)
+      .map(keyOf),
+  );
+  check(
+    'nobody is re-asked while a recent answer still stands',
+    allReminders.filter((r) => r.status === 'upcoming' && recentlyClosed.has(keyOf(r))).length,
+    0,
+  );
+
   check(
     'every sent reminder carries a token the owner can answer',
     await prisma.reminder.count({ where: { status: 'sent', token: null } }),
