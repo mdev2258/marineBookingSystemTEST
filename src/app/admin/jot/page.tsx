@@ -25,9 +25,13 @@ export default async function JotPage(props: PageProps<'/admin/jot'>) {
   return (
     <AdminShell>
       <form action={createJot} className="flex min-h-[70vh] flex-col py-5">
-        <label htmlFor="text" className="k">
-          Get it out of your head
-        </label>
+        {/* The label doubles as the page heading, so a screen reader user
+            landing here (or jumping by heading) knows where they are. */}
+        <h1 className="leading-none">
+          <label htmlFor="text" className="k">
+            Get it out of your head
+          </label>
+        </h1>
 
         <textarea
           id="text"
@@ -36,11 +40,13 @@ export default async function JotPage(props: PageProps<'/admin/jot'>) {
           required
           rows={8}
           placeholder="Westerly at Bosham, owner wants furler looked at"
+          aria-invalid={wasEmpty || undefined}
+          aria-describedby={wasEmpty ? 'text-error' : undefined}
           className="mt-3 w-full flex-1 border border-divider bg-bg p-3 text-[16px] leading-snug outline-none focus:border-accent-700"
         />
 
         {wasEmpty && (
-          <p className="mt-2 text-[13.5px] text-accent-800">
+          <p id="text-error" role="alert" className="mt-2 text-[13.5px] text-accent-800">
             Nothing to save — type or paste something first.
           </p>
         )}

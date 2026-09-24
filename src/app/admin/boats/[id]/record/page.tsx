@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { AdminShell } from '@/components/admin/shell';
-import { RecordSheet } from '@/components/admin/record-sheet';
+import { RecordSheet, printQty } from '@/components/admin/record-sheet';
 import { formatPence } from '@/lib/money';
 import { isCompleted, loadBoatById, workDate } from '@/lib/boat';
 import { formatLondonDateShort, todayInLondon } from '@/lib/time';
@@ -69,7 +69,7 @@ export default async function WorkRecordPage(props: PageProps<'/admin/boats/[id]
                         <li key={l.id} className="flex justify-between gap-4 text-[13.5px]">
                           <span>
                             {l.description}
-                            {l.qty !== 1 ? ` — ${l.qty}` : ''}
+                            {l.qty !== 1 || l.kind === 'labour' ? ` — ${printQty(l)}` : ''}
                           </span>
                           <span className="numeric shrink-0">{formatPence(l.amountPence)}</span>
                         </li>

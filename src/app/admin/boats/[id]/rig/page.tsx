@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { AdminShell } from '@/components/admin/shell';
-import { RecordSheet } from '@/components/admin/record-sheet';
+import { RecordSheet, printQty } from '@/components/admin/record-sheet';
 import { describeEquipment, isCompleted, isRigEquipment, isRigJob, loadBoatById, workDate } from '@/lib/boat';
 import { formatLondonDateLong, formatLondonDateShort, todayInLondon } from '@/lib/time';
 
@@ -92,7 +92,7 @@ export default async function RigRecordPage(props: PageProps<'/admin/boats/[id]/
                       .map((l) => (
                         <li key={l.id} className="text-[13.5px]">
                           {l.description}
-                          {l.qty !== 1 ? ` — ${l.qty}` : ''}
+                          {l.qty !== 1 || l.kind === 'labour' ? ` — ${printQty(l)}` : ''}
                         </li>
                       ))}
                     {job.variations

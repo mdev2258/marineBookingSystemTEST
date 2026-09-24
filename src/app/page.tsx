@@ -172,10 +172,12 @@ export default function Home() {
           </p>
           <div className="mt-8 grid gap-8 sm:grid-cols-3">
             {OWNER.map((p) => (
-              <div key={p.title}>
-                {/* Two lines reserved so the three bodies start level at desktop widths. */}
-                <h3 className="text-lg uppercase text-balance text-accent-700 sm:min-h-[2lh]">{p.title}</h3>
-                <p className="mt-2 leading-relaxed">{p.body}</p>
+              // Subgrid: each column spans the parent's title row and body row,
+              // so the bodies start level however many lines the longest title
+              // wraps to. (A reserved min-height broke at three-line titles.)
+              <div key={p.title} className="sm:row-span-2 sm:grid sm:grid-rows-subgrid sm:gap-y-2">
+                <h3 className="text-lg uppercase text-balance text-accent-700">{p.title}</h3>
+                <p className="mt-2 leading-relaxed sm:mt-0">{p.body}</p>
               </div>
             ))}
           </div>

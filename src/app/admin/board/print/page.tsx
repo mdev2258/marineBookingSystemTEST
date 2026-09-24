@@ -8,7 +8,7 @@ import { formatLondonDateLong, formatLondonDateShort, todayInLondon } from '@/li
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Board — print' };
+export const metadata: Metadata = { title: 'Printed board — Harbourside Marine Services' };
 
 /**
  * THE BOARD ON PAPER (ANALYSIS-TRADES.md §7 F7), landscape A4 or A3.

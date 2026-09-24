@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { adminLogout } from '@/app/admin/actions';
 import { prisma } from '@/lib/prisma';
+import { FEATURE_YARD } from '@/lib/features';
 
 /**
  * Used by the authenticated admin pages rather than an admin/layout.tsx, so
@@ -29,6 +30,25 @@ export async function AdminShell({
       >
         Skip to content
       </a>
+      {/*
+        JOT, one tap away from every screen (ANALYSIS-TRADES.md §7 F1).
+        Fixed to the bottom right rather than in the header, because the target
+        is a thumb on a 390px phone held in one hand -- the top of the screen
+        is the part a thumb cannot reach. pb-28 on <main> keeps it from
+        covering the last card. Placed straight after the skip link in the DOM
+        so it is the second Tab stop, not the last (QA r2 #21); position:fixed
+        keeps it visually where it was.
+      */}
+      {/* no-print: a fixed element prints on EVERY page, so without this the
+          rig record handed to an insurer came out with a black "JOT" box in
+          the corner. Found in F7; had been on every F2 record since F2. */}
+      <Link
+        href="/admin/jot"
+        aria-label="Jot something down"
+        className="no-print k fixed bottom-5 right-5 z-20 flex h-16 min-w-16 items-center justify-center bg-accent-900 px-5 text-bg shadow-lg hover:bg-ink"
+      >
+        Jot
+      </Link>
       <header className="border-b border-divider bg-bg">
         <div
           className={`mx-auto flex ${wide ? 'max-w-none' : 'max-w-3xl'} items-center justify-between gap-3 px-4 py-3`}
@@ -57,12 +77,16 @@ export async function AdminShell({
             >
               Invoices
             </Link>
-            <Link
-              href="/admin/enquiries"
-              className="font-condensed font-semibold tracking-tight hover:text-accent-700"
-            >
-              Inbox
-            </Link>
+            {/* The Inbox is the yard's enquiry screen; it has no meaning for a
+                trades job (QA r2 #17). */}
+            {FEATURE_YARD && (
+              <Link
+                href="/admin/enquiries"
+                className="font-condensed font-semibold tracking-tight hover:text-accent-700"
+              >
+                Inbox
+              </Link>
+            )}
           </nav>
           <form action={adminLogout}>
             <button type="submit" className="text-sm muted underline hover:text-accent-700">
@@ -76,23 +100,6 @@ export async function AdminShell({
         {children}
       </main>
 
-      {/*
-        JOT, one tap away from every screen (ANALYSIS-TRADES.md §7 F1).
-        Fixed to the bottom right rather than in the header, because the target
-        is a thumb on a 390px phone held in one hand -- the top of the screen
-        is the part a thumb cannot reach. pb-28 on <main> above keeps it from
-        covering the last card.
-      */}
-      {/* no-print: a fixed element prints on EVERY page, so without this the
-          rig record handed to an insurer came out with a black "JOT" box in
-          the corner. Found in F7; had been on every F2 record since F2. */}
-      <Link
-        href="/admin/jot"
-        aria-label="Jot something down"
-        className="no-print k fixed bottom-5 right-5 z-20 flex h-16 min-w-16 items-center justify-center bg-accent-900 px-5 text-bg shadow-lg hover:bg-ink"
-      >
-        Jot
-      </Link>
     </>
   );
 }

@@ -32,7 +32,7 @@ export function BoardCard({ card, today }: { card: BoardCard; today: string }) {
           {/* The boat, not the owner: the trade thinks in boats. An unsorted
               jot has no boat yet, and says so rather than faking one. */}
           <p
-            className={`font-condensed leading-tight ${
+            className={`min-w-0 wrap-anywhere font-condensed leading-tight ${
               isJot ? 'text-[15px] italic muted' : 'text-[19px] font-semibold'
             }`}
           >
@@ -47,7 +47,9 @@ export function BoardCard({ card, today }: { card: BoardCard; today: string }) {
           )}
         </div>
 
-        <p className="mt-1 text-[13.5px] leading-snug">{cardTitle(card)}</p>
+        {/* wrap-anywhere: a jot is often a pasted URL, which has no break points
+            and otherwise runs out of the card (QA r2). */}
+        <p className="mt-1 text-[13.5px] leading-snug wrap-anywhere">{cardTitle(card)}</p>
 
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
           {/* The flashing border stops after three pulses; the word does not. */}

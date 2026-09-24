@@ -22,22 +22,24 @@ export async function PublicShell({
   width?: 'wide' | 'narrow';
 }) {
   const business = passed ?? (await getBusiness());
+  // Header and content share one width, so their left edges line up.
+  const max = width === 'narrow' ? 'max-w-xl' : 'max-w-2xl';
   return (
     <>
       <header className="border-b border-divider">
-        <div className="mx-auto flex max-w-2xl items-center justify-between gap-4 px-5 py-4">
+        <div className={`mx-auto flex ${max} items-center justify-between gap-4 px-5 py-4`}>
           <span className="font-condensed font-semibold tracking-tight">{business?.name}</span>
           {business?.phone && (
             <a
               href={`tel:${business.phone.replace(/\s/g, '')}`}
-              className="text-sm text-accent-700 underline"
+              className="text-sm whitespace-nowrap text-accent-700 underline"
             >
               {business.phone}
             </a>
           )}
         </div>
       </header>
-      <main className={`mx-auto w-full px-5 py-8 ${width === 'narrow' ? 'max-w-xl' : 'max-w-2xl'}`}>
+      <main className={`mx-auto w-full px-5 py-8 ${max}`}>
         {children}
       </main>
     </>

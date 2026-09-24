@@ -66,11 +66,22 @@ export function RecordSheet({
           {business.name}
           {business.phone ? ` · ${business.phone}` : ''} · {business.contactEmail}
         </p>
-        <div className="mt-6 flex gap-10">
-          <p className="border-t border-ink pt-1">Signed</p>
-          <p className="border-t border-ink pt-1">Date</p>
+        {/* Room above the rule to actually write, and rules long enough for a
+            signature (QA r2: the old ones were the width of the word). */}
+        <div className="mt-12 flex gap-10">
+          <p className="flex-1 border-t border-ink pt-1">Signed</p>
+          <p className="w-40 border-t border-ink pt-1">Date</p>
         </div>
       </footer>
     </article>
   );
+}
+
+/**
+ * A printed quantity. Labour is hours, and a bare "2.5" on a sheet handed to an
+ * owner or insurer does not say that.
+ */
+export function printQty(line: { qty: number; kind: string | null }): string {
+  if (line.kind !== 'labour') return String(line.qty);
+  return `${line.qty} ${line.qty === 1 ? 'hr' : 'hrs'}`;
 }

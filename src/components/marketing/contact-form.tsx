@@ -1,19 +1,19 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useRef, useState } from 'react';
 import { submitContactForm, type ContactState, type ContactValues } from '@/app/actions';
 
 const EMPTY: ContactValues = { name: '', email: '', business: '', message: '' };
 
 const field =
   'w-full rounded-md border border-neutral-300 bg-white px-3 py-3 text-ink ' +
-  'placeholder:text-neutral-400 focus:border-brand-600 focus:outline-2 focus:outline-offset-2 ' +
+  'placeholder:text-neutral-600 focus:border-brand-600 focus:outline-2 focus:outline-offset-2 ' +
   'focus:outline-brand-600';
 
 function FieldError({ id, message }: { id: string; message?: string }) {
   if (!message) return null;
   return (
-    <p id={id} className="mt-1.5 text-sm font-medium text-red-700">
+    <p id={id} role="alert" className="mt-1.5 text-sm font-medium text-red-700">
       {message}
     </p>
   );
@@ -24,10 +24,17 @@ export function ContactForm() {
   // Controlled, so React's post-submit form reset cannot bin what was typed
   // when the action comes back with validation errors.
   const [values, setValues] = useState<ContactValues>(EMPTY);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // After a failed submit, put focus on the first bad field so its error is
+  // read with it (WCAG 3.3.1), rather than leaving focus on the button.
+  useEffect(() => {
+    formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+  }, [state]);
 
   if (state.ok) {
     return (
-      <div className="rounded-lg border border-brand-200 bg-brand-50 p-6">
+      <div role="status" className="rounded-lg border border-brand-200 bg-brand-50 p-6">
         <h3 className="text-lg font-semibold text-brand-800">Thanks — that&rsquo;s with me.</h3>
         <p className="mt-2 text-neutral-700">
           I read every message myself and normally reply within one working day.
@@ -40,7 +47,7 @@ export function ContactForm() {
     setValues((v) => ({ ...v, [k]: e.target.value }));
 
   return (
-    <form action={action} className="space-y-5">
+    <form ref={formRef} action={action} className="space-y-5">
       <div>
         <label htmlFor="name" className="mb-1.5 block font-medium">
           Your name

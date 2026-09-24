@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { AdminShell } from '@/components/admin/shell';
-import { RecordSheet } from '@/components/admin/record-sheet';
+import { RecordSheet, printQty } from '@/components/admin/record-sheet';
 import { cardTitle } from '@/lib/board';
 import { DECIDED_VIA_PLAIN, type DecidedVia } from '@/lib/enums';
 import { formatDateShort, formatLondonDateShort, formatTime, todayInLondon } from '@/lib/time';
@@ -86,7 +86,9 @@ export default async function JobSheetPage(props: PageProps<'/admin/board/[id]/p
                       is dropped by most print dialogs, a glyph is not. */}
                   <span className="w-5 shrink-0 text-[15px] leading-none">{l.done ? '☑' : '☐'}</span>
                   <span className="flex-1">{l.description}</span>
-                  {l.qty !== 1 && <span className="shrink-0 muted">{l.qty}</span>}
+                  {(l.qty !== 1 || l.kind === 'labour') && (
+                    <span className="shrink-0 muted">{printQty(l)}</span>
+                  )}
                 </li>
               ))}
             </ul>

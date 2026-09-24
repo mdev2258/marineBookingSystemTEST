@@ -104,6 +104,12 @@ select,
 textarea {
   border-color: var(--color-field-border);
 }
+/* Preflight's placeholder is ink at 50%, about 3.1:1 on the ground. Hints
+   are still text people read (1.4.3), so they get the secondary-text grey. */
+::placeholder {
+  color: var(--color-neutral-600);
+  opacity: 1;
+}
 input:focus,
 select:focus,
 textarea:focus {

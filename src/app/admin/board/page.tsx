@@ -27,6 +27,8 @@ export default async function BoardPage(props: PageProps<'/admin/board'>) {
     ? (requested as JobColumn)
     : 'enquiry';
 
+  const justJotted = params.jotted === '1';
+
   const board = await loadBoard();
   const today = todayInLondon();
 
@@ -39,6 +41,11 @@ export default async function BoardPage(props: PageProps<'/admin/board'>) {
         <p className="mt-1 text-[13.5px] muted">
           {[...board.values()].reduce((n, c) => n + c.length, 0)} jobs in hand
           {overdueCount > 0 && ` · ${overdueCount} waiting past its date`}
+        </p>
+        {/* createJot lands here with ?jotted=1. role=status so the save is
+            announced, not just shown (WCAG 4.1.3). */}
+        <p role="status" className="mt-2 text-[13.5px] text-accent-800">
+          {justJotted && 'Saved to Jotted.'}
         </p>
       </div>
 
@@ -82,8 +89,9 @@ export default async function BoardPage(props: PageProps<'/admin/board'>) {
               key={col}
               className={`${col === selected ? 'block' : 'hidden'} pt-5 md:block md:w-64 md:shrink-0`}
             >
-              {/* The heading is the tab on a phone, so it only shows on desktop. */}
-              <h2 className="k hidden border-b border-divider pb-2 md:flex md:items-baseline md:justify-between">
+              {/* Shown on a phone too: the active tab can be scrolled out of
+                  the tab strip, and this is what says which column you are in. */}
+              <h2 className="k flex items-baseline justify-between border-b border-divider pb-2">
                 <span>{JOB_COLUMN_LABEL[col]}</span>
                 <span className="muted">{cards.length}</span>
               </h2>

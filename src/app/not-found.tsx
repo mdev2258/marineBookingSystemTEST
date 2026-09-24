@@ -1,3 +1,4 @@
+import { PublicShell } from '@/components/public-shell';
 import { getBusiness } from '@/lib/business';
 
 /**
@@ -21,9 +22,11 @@ import { getBusiness } from '@/lib/business';
 export default async function NotFound() {
   const business = await getBusiness();
   return (
-    <main className="mx-auto w-full max-w-xl px-5 py-16">
+    // The same business header as every owner page, so a stale link still
+    // lands somewhere that says whose it is.
+    <PublicShell business={business ?? undefined} width="narrow">
       {/* not-found.tsx cannot export metadata; React hoists this into <head>. */}
-      <title>Link not found</title>
+      <title>{business ? `Link not found — ${business.name}` : 'Link not found'}</title>
       <h1 className="font-condensed text-2xl font-semibold tracking-tight">
         We couldn&rsquo;t find that page
       </h1>
@@ -36,13 +39,16 @@ export default async function NotFound() {
         {business?.phone && (
           <>
             {' '}on{' '}
-            <a href={`tel:${business.phone.replace(/\s/g, '')}`} className="text-accent-700 underline">
+            <a
+              href={`tel:${business.phone.replace(/\s/g, '')}`}
+              className="whitespace-nowrap text-accent-700 underline"
+            >
               {business.phone}
             </a>
           </>
         )}{' '}
         and we will sort it out.
       </p>
-    </main>
+    </PublicShell>
   );
 }
