@@ -11,7 +11,7 @@ import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Ask for a slot — Harbourside Marine' };
+export const metadata: Metadata = { title: 'Ask for a slot — Harbourside Marine Services' };
 
 export default async function BookSessionPage(props: PageProps<'/book/[sessionId]'>) {
   yardOnly();

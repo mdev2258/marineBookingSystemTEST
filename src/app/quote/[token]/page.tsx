@@ -9,7 +9,7 @@ import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Your quote — Harbourside Marine' };
+export const metadata: Metadata = { title: 'Your quote — Harbourside Marine Services' };
 
 /** Direction 2b-C. The estimate plate is the screen; everything else frames it. */
 export default async function QuotePage(props: PageProps<'/quote/[token]'>) {

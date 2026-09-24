@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { hasRoom } from '@/lib/availability';
 import { depositPence } from '@/lib/money';
 import { holdExpiresAt, startCheckout } from '@/lib/payments';
+import { yardOnly } from '@/lib/features';
 
 export type AcceptState = { error?: string };
 
@@ -25,6 +26,9 @@ export async function acceptQuote(
   _prev: AcceptState,
   _formData: FormData,
 ): Promise<AcceptState> {
+  yardOnly();
+  // A non-string token ($undefined, an object) makes Prisma drop the filter.
+  if (typeof token !== 'string' || !token) return { error: 'That link has already been used.' };
   const booking = await prisma.booking.findFirst({
     where: { quoteToken: token, status: 'quoted' },
     include: { session: { include: { sessionType: true } } },
@@ -66,6 +70,8 @@ export async function acceptQuote(
 
 /** Say no, without having to ring up and say no. */
 export async function declineQuote(token: string): Promise<void> {
+  yardOnly();
+  if (typeof token !== 'string' || !token) return;
   const declined = await prisma.booking.updateMany({
     where: { quoteToken: token, status: 'quoted' },
     data: { status: 'declined', quoteToken: null },

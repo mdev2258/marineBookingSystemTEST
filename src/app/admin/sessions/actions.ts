@@ -9,6 +9,7 @@ import { placesTaken } from '@/lib/availability';
 import { isCancellationReason } from '@/lib/enums';
 import { generateRebookToken } from '@/lib/reference';
 import { sendCancellationEmail } from '@/lib/notifications';
+import { yardOnly } from '@/lib/features';
 
 export type SessionFormState = {
   error?: string;
@@ -54,6 +55,7 @@ export async function createSession(
   _prev: SessionFormState,
   formData: FormData,
 ): Promise<SessionFormState> {
+  yardOnly();
   await requireAdmin();
 
   const parsed = parse(formData);
@@ -89,7 +91,9 @@ export async function updateSession(
   _prev: SessionFormState,
   formData: FormData,
 ): Promise<SessionFormState> {
+  yardOnly();
   await requireAdmin();
+  if (typeof sessionId !== 'string' || !sessionId) return { error: 'That slot no longer exists.' };
 
   const parsed = parse(formData);
   if (!parsed.ok) return parsed.state;
@@ -152,7 +156,10 @@ export async function cancelSession(
   _prev: CancelState,
   formData: FormData,
 ): Promise<CancelState> {
+  yardOnly();
   await requireAdmin();
+  // An undefined id drops out of the WHERE below and would cancel every slot.
+  if (typeof sessionId !== 'string' || !sessionId) return { error: 'That slot no longer exists.' };
 
   const reason = String(formData.get('reason') ?? '');
   const note = String(formData.get('note') ?? '').trim().slice(0, 500);

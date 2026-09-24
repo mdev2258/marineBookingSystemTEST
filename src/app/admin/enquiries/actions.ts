@@ -8,6 +8,7 @@ import { poundsToPence } from '@/lib/money';
 import { hasRoom } from '@/lib/availability';
 import { generateRebookToken } from '@/lib/reference';
 import { sendQuoteEmail } from '@/lib/notifications';
+import { yardOnly } from '@/lib/features';
 
 export type QuoteState = {
   error?: string;
@@ -58,7 +59,9 @@ export async function sendQuote(
   _prev: QuoteState,
   formData: FormData,
 ): Promise<QuoteState> {
+  yardOnly();
   await requireAdmin();
+  if (typeof bookingId !== 'string' || !bookingId) return { error: 'That job no longer exists.' };
 
   const errors: QuoteState['errors'] = {};
   const sessionId = String(formData.get('sessionId') ?? '').trim();

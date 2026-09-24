@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma';
 import { hasRoom } from '@/lib/availability';
 import { generateBookingReference } from '@/lib/reference';
 import { sendEnquiryReceivedEmail } from '@/lib/notifications';
+import { yardOnly } from '@/lib/features';
 
 const RequestSchema = z.object({
   name: z.string().trim().min(1, 'Please give us your name.').max(120),
@@ -116,6 +117,8 @@ export async function requestSlot(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
+  yardOnly();
+  if (typeof sessionId !== 'string' || !sessionId) return { error: 'That slot is no longer available.' };
   const parsed = parse(formData);
   if (!parsed.success) return fieldErrors(parsed.error);
   const { name, email, phone, requestNotes, ...vesselInput } = parsed.data;
@@ -171,6 +174,7 @@ export async function requestWork(
   _prev: RequestState,
   formData: FormData,
 ): Promise<RequestState> {
+  yardOnly();
   const parsed = parse(formData);
   if (!parsed.success) return fieldErrors(parsed.error);
   const { name, email, phone, requestNotes, ...vesselInput } = parsed.data;

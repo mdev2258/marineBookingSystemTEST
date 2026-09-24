@@ -1,10 +1,12 @@
 import type { Metadata } from 'next';
 import { PublicShell } from '@/components/public-shell';
 import { getBusiness } from '@/lib/business';
+import { yardOnly } from '@/lib/features';
 
-export const metadata: Metadata = { title: 'Quote declined — Harbourside Marine' };
+export const metadata: Metadata = { title: 'Quote declined — Harbourside Marine Services' };
 
 export default async function QuoteDeclinedPage() {
+  yardOnly();
   const business = await getBusiness();
   return (
     <PublicShell width="narrow">

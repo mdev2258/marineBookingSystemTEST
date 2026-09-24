@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { hasRoom } from '@/lib/availability';
 import { sendRebookConfirmationEmail } from '@/lib/notifications';
+import { yardOnly } from '@/lib/features';
 
 export type RebookState = { error?: string };
 
@@ -25,6 +26,9 @@ export async function confirmRebook(
   _prev: RebookState,
   formData: FormData,
 ): Promise<RebookState> {
+  yardOnly();
+  // A non-string token ($undefined, an object) makes Prisma drop the filter.
+  if (typeof token !== 'string' || !token) return { error: 'That link has already been used.' };
   const newSessionId = String(formData.get('sessionId') ?? '');
   if (!newSessionId) return { error: 'Pick a session first.' };
 

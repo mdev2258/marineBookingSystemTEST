@@ -13,7 +13,7 @@ import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Slot — Harbourside Marine' };
+export const metadata: Metadata = { title: 'Slot — Harbourside Marine Services' };
 
 export default async function SessionDetailPage(props: PageProps<'/admin/sessions/[id]'>) {
   yardOnly();

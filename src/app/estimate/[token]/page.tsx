@@ -1,14 +1,16 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
+import { getBusiness } from '@/lib/business';
 import { PublicShell } from '@/components/public-shell';
 import { Plate } from '@/components/ui/plate';
 import { formatPence } from '@/lib/money';
 import { decideEstimate } from '@/app/estimate/[token]/actions';
+import { DECISION_LINK_DAYS, decisionCutoff } from '@/app/estimate/[token]/expiry';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Your estimate' };
+export const metadata: Metadata = { title: 'Your estimate — Harbourside Marine Services' };
 
 /**
  * The owner's estimate. One page, two buttons, no account.
@@ -25,6 +27,7 @@ export default async function EstimatePage(props: PageProps<'/estimate/[token]'>
   const estimate = await prisma.estimate.findUnique({
     where: { token },
     include: {
+      lines: { orderBy: { sortOrder: 'asc' } },
       booking: {
         include: {
           vessel: { select: { name: true } },
@@ -36,10 +39,14 @@ export default async function EstimatePage(props: PageProps<'/estimate/[token]'>
   });
   if (!estimate || estimate.status !== 'sent') notFound();
 
-  const business = await prisma.operator.findFirst();
+  const business = await getBusiness();
   if (!business) notFound();
 
-  const lines = estimate.booking.lineItems;
+  // What the owner is agreeing to is what was frozen at send. Estimates sent
+  // before EstimateLine existed have none, so fall back to the job's lines.
+  const lines = estimate.lines.length > 0 ? estimate.lines : estimate.booking.lineItems;
+  // Also enforced in decideEstimate's WHERE; this just says so before they tap.
+  const expired = !estimate.sentAt || estimate.sentAt <= decisionCutoff();
 
   return (
     <PublicShell business={business} width="narrow">
@@ -89,31 +96,42 @@ export default async function EstimatePage(props: PageProps<'/estimate/[token]'>
         so far. If we find anything that adds to it, we will ask you first — every time.
       </p>
 
-      <div className="mt-8 space-y-3">
-        <form action={decideEstimate.bind(null, token)}>
-          <input type="hidden" name="decision" value="accept" />
-          <button
-            type="submit"
-            className="k min-h-14 w-full bg-accent-900 px-6 text-bg hover:bg-ink"
-          >
-            Yes, go ahead
-          </button>
-        </form>
+      {expired ? (
+        <p className="mt-8 border-l-2 border-accent-700 bg-neutral-100 p-3 text-[15px]">
+          <strong>This estimate has expired.</strong> Estimates are good for {DECISION_LINK_DAYS}{' '}
+          days, so ring us on {business.phone} and we will check the price still stands.
+        </p>
+      ) : (
+        <>
+          <div className="mt-8 space-y-3">
+            <form action={decideEstimate.bind(null, token)}>
+              <input type="hidden" name="id" value={estimate.id} />
+              <input type="hidden" name="decision" value="accept" />
+              <button
+                type="submit"
+                className="k min-h-14 w-full bg-accent-900 px-6 text-bg hover:bg-ink"
+              >
+                Yes, go ahead
+              </button>
+            </form>
 
-        <form action={decideEstimate.bind(null, token)}>
-          <input type="hidden" name="decision" value="decline" />
-          <button
-            type="submit"
-            className="k min-h-14 w-full border border-divider px-6 hover:bg-neutral-200"
-          >
-            No, not for now
-          </button>
-        </form>
-      </div>
+            <form action={decideEstimate.bind(null, token)}>
+              <input type="hidden" name="id" value={estimate.id} />
+              <input type="hidden" name="decision" value="decline" />
+              <button
+                type="submit"
+                className="k min-h-14 w-full border border-divider px-6 hover:bg-neutral-200"
+              >
+                No, not for now
+              </button>
+            </form>
+          </div>
 
-      <p className="mt-6 text-[13px] muted">
-        Would rather talk it through? Ring {business.phone} — we can mark it agreed at our end.
-      </p>
+          <p className="mt-6 text-[13px] muted">
+            Would rather talk it through? Ring {business.phone} — we can mark it agreed at our end.
+          </p>
+        </>
+      )}
     </PublicShell>
   );
 }

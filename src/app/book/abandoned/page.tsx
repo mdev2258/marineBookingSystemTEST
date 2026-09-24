@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { PublicShell } from '@/components/public-shell';
 import { yardOnly } from '@/lib/features';
 
-export const metadata: Metadata = { title: 'Payment cancelled — Harbourside Marine' };
+export const metadata: Metadata = { title: 'Payment cancelled — Harbourside Marine Services' };
 
 /** Stripe's cancel_url. Nothing to undo: the hold lapses on its own. */
 export default function AbandonedPage() {

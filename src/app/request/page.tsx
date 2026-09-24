@@ -8,7 +8,7 @@ import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Ask us about work — Harbourside Marine' };
+export const metadata: Metadata = { title: 'Ask us about work — Harbourside Marine Services' };
 
 /**
  * The other way in. A liftout can be picked off the diary because the tide

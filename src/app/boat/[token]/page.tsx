@@ -11,7 +11,7 @@ import { formatLondonDateShort, todayInLondon } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Your boat' };
+export const metadata: Metadata = { title: 'Your boat — Harbourside Marine Services' };
 
 /** The admin labels ("Owner decision") are the trade's words; these are the owner's. */
 const OWNER_WAITING: Record<WaitingReason, string> = {

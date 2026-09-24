@@ -9,7 +9,7 @@ import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Diary — Harbourside Marine' };
+export const metadata: Metadata = { title: 'Diary — Harbourside Marine Services' };
 
 export default async function SessionsPage() {
   yardOnly();

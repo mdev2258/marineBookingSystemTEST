@@ -10,7 +10,7 @@ import { yardOnly } from '@/lib/features';
 // has gone.
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Yard diary — Harbourside Marine' };
+export const metadata: Metadata = { title: 'Yard diary — Harbourside Marine Services' };
 
 export default async function BookPage(props: PageProps<'/book'>) {
   yardOnly();

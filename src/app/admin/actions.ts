@@ -1,6 +1,6 @@
 'use server';
 
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
@@ -8,10 +8,12 @@ import {
   ADMIN_COOKIE,
   adminCookieOptions,
   credentialsAreValid,
+  revokeAdminToken,
   signAdminToken,
   verifyAdminToken,
 } from '@/lib/auth';
 import { sendReminders } from '@/lib/reminders';
+import { yardOnly } from '@/lib/features';
 
 /**
  * src/proxy.ts already guards /admin/*, but a Server Action is a POST endpoint
@@ -28,12 +30,36 @@ export async function requireAdmin(): Promise<void> {
 
 export type LoginState = { error?: string; username?: string };
 
+// ponytail: in-memory, per-process failed-login counter keyed by client IP.
+// Each serverless instance / restart starts from zero, and the IP comes from
+// x-forwarded-for, which is only trustworthy behind a proxy that sets it (as
+// Vercel does). Upgrade path: a shared store (Redis/Postgres) keyed by IP and
+// username. FREE_ATTEMPTS failures, then a lockout that doubles each time.
+const FREE_ATTEMPTS = 5;
+const MAX_LOCK_MS = 15 * 60 * 1000;
+const failures = new Map<string, { count: number; lockedUntil: number }>();
+
+async function clientIp(): Promise<string> {
+  const h = await headers();
+  return h.get('x-forwarded-for')?.split(',')[0].trim() || h.get('x-real-ip') || 'unknown';
+}
+
 export async function adminLogin(_prev: LoginState, formData: FormData): Promise<LoginState> {
   const username = String(formData.get('username') ?? '').trim();
   const password = String(formData.get('password') ?? '');
   const next = String(formData.get('next') ?? '');
 
+  const ip = await clientIp();
+  const record = failures.get(ip);
+  if (record && record.lockedUntil > Date.now()) {
+    return { error: 'Too many attempts. Wait a few minutes and try again.', username };
+  }
+
   if (!credentialsAreValid(username, password)) {
+    const count = (record?.count ?? 0) + 1;
+    const lockMs = count > FREE_ATTEMPTS ? Math.min(1000 * 2 ** (count - FREE_ATTEMPTS), MAX_LOCK_MS) : 0;
+    if (failures.size > 10_000) failures.clear(); // bound memory under a spray from many IPs
+    failures.set(ip, { count, lockedUntil: Date.now() + lockMs });
     // One message for both cases: naming which half was wrong tells an attacker
     // when they have found a real username.
     // The username comes back so React 19's post-action form reset does not
@@ -41,6 +67,7 @@ export async function adminLogin(_prev: LoginState, formData: FormData): Promise
     return { error: 'Those details were not recognised.', username };
   }
 
+  failures.delete(ip);
   const store = await cookies();
   store.set(ADMIN_COOKIE, await signAdminToken(username), adminCookieOptions());
 
@@ -52,6 +79,7 @@ export async function adminLogin(_prev: LoginState, formData: FormData): Promise
 
 export async function adminLogout(): Promise<void> {
   const store = await cookies();
+  await revokeAdminToken(store.get(ADMIN_COOKIE)?.value);
   store.delete(ADMIN_COOKIE);
   redirect('/admin/login');
 }
@@ -66,6 +94,7 @@ export async function sendRemindersNow(
   _prev: ReminderActionState,
   _formData: FormData,
 ): Promise<ReminderActionState> {
+  yardOnly(); // its only button is on the parked /admin/sessions screen
   await requireAdmin();
   const result = await sendReminders();
   revalidatePath('/admin/sessions');
@@ -83,7 +112,10 @@ export async function markAttendance(
   bookingId: string,
   status: 'completed' | 'no_show',
 ): Promise<void> {
+  yardOnly();
   await requireAdmin();
+  if (typeof bookingId !== 'string' || !bookingId) throw new Error('Job not found.');
+  if (status !== 'completed' && status !== 'no_show') throw new Error('That job cannot be marked.');
 
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },

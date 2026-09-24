@@ -9,7 +9,7 @@ import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Deposit received — Harbourside Marine' };
+export const metadata: Metadata = { title: 'Deposit received — Harbourside Marine Services' };
 
 /**
  * Stripe's success_url lands here with ?cs={CHECKOUT_SESSION_ID}. The demo stub

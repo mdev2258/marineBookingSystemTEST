@@ -10,7 +10,7 @@ import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Your job — Harbourside Marine' };
+export const metadata: Metadata = { title: 'Your job — Harbourside Marine Services' };
 
 /** The reference is the key customers actually have, from their email. */
 export default async function BookingPage(props: PageProps<'/booking/[reference]'>) {

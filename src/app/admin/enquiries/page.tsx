@@ -6,10 +6,11 @@ import { sendQuote } from '@/app/admin/enquiries/actions';
 import { placesTakenBySession, spacesLeftFrom } from '@/lib/availability';
 import { penceToPoundsInput, formatPence } from '@/lib/money';
 import { formatDateShort, formatTimeRange } from '@/lib/time';
+import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Inbox — Harbourside Marine' };
+export const metadata: Metadata = { title: 'Inbox — Harbourside Marine Services' };
 
 /**
  * Work that is waiting on the yard or on the owner, rather than on the water.
@@ -18,6 +19,7 @@ export const metadata: Metadata = { title: 'Inbox — Harbourside Marine' };
  * them.
  */
 export default async function EnquiriesPage() {
+  yardOnly();
   const now = new Date();
 
   const jobs = await prisma.booking.findMany({

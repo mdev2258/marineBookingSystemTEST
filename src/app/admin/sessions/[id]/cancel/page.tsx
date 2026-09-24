@@ -11,7 +11,7 @@ import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Cancel slot — Harbourside Marine' };
+export const metadata: Metadata = { title: 'Cancel slot — Harbourside Marine Services' };
 
 /**
  * One route, two states. Once the session is cancelled this page becomes the

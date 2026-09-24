@@ -11,7 +11,7 @@ import { yardOnly } from '@/lib/features';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Pick a new date — Harbourside Marine' };
+export const metadata: Metadata = { title: 'Pick a new date — Harbourside Marine Services' };
 
 const Shell = ({ children }: { children: React.ReactNode }) => (
   <PublicShell width="narrow">{children}</PublicShell>
