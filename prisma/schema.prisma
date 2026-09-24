@@ -92,6 +92,9 @@ model Operator {
   /// NEVER store card data here or anywhere else in this schema.
   bankDetailsText String?
 
+  /// Postal address, printed on invoices (a UK invoice needs the seller's).
+  address String?
+
   sessionTypes SessionType[]
   sessions     Session[]
   customers    Customer[]
@@ -431,9 +434,28 @@ model Estimate {
 
   createdAt DateTime @default(now())
 
-  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  booking Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  lines   EstimateLine[]
 
   @@index([bookingId, status])
+}
+
+/// Snapshotted at send, like InvoiceLine: what the owner was shown and agreed
+/// to, frozen, whatever happens to the job's working lines afterwards.
+model EstimateLine {
+  id             String @id @default(cuid())
+  estimateId     String
+  kind           String?
+  description    String
+  qty            Float  @default(1)
+  unitPricePence Int    @default(0)
+  amountPence    Int
+  vatRateBps     Int    @default(0)
+  sortOrder      Int    @default(0)
+
+  estimate Estimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+
+  @@index([estimateId])
 }
 
 /// Extra work found once the job is open -- the seized seacock. Raised in
@@ -459,6 +481,10 @@ model Variation {
   /// Exactly one chase, 24h after raising. Not a drip campaign.
   reminderSentAt DateTime?
 
+  /// Hidden per-form value, unique: a double submit of the same form collides
+  /// instead of raising the variation (and emailing the owner) twice.
+  formNonce String? @unique
+
   createdAt DateTime @default(now())
 
   booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
@@ -478,6 +504,8 @@ model PartOrder {
   etaOn     String?
   arrivedOn String?
   costPence Int?
+  /// See Variation.formNonce.
+  formNonce String? @unique
 
   booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
@@ -497,6 +525,8 @@ model Visit {
   /// weather | tide | parts | access | other -- free text note alongside.
   postponeReason String?
   postponeNote   String?
+  /// See Variation.formNonce.
+  formNonce      String?   @unique
   createdAt      DateTime  @default(now())
 
   booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
@@ -541,6 +571,12 @@ model Invoice {
   notes     String?
   createdAt DateTime @default(now())
 
+  /// Seller name, address, phone, VAT number and bank details as they were at
+  /// issue. An invoice is a historical document: editing the business later
+  /// must not rewrite it.
+  sellerText   String?
+  customerName String?
+
   operator Operator      @relation(fields: [operatorId], references: [id])
   booking  Booking       @relation(fields: [bookingId], references: [id])
   lines    InvoiceLine[]
@@ -561,6 +597,9 @@ model InvoiceLine {
   amountPence    Int
   vatRateBps     Int    @default(0)
   sortOrder      Int    @default(0)
+  /// labour | parts | ... -- so a printed "x 3" can say "hrs". Null on
+  /// variations and older rows.
+  kind           String?
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
@@ -594,6 +633,10 @@ model Reminder {
   /// When it was dismissed or booked; the 11-month quiet period counts from here.
   /// Null on rows closed before the column existed -- those fall back to createdAt.
   closedAt  DateTime?
+  /// vessel|kind|equipment|period, unique. The database refuses a duplicate
+  /// reminder, so two overlapping sweeps cannot both create one. Seasonal kinds
+  /// use the year as the period; see lib/due-work.ts.
+  dedupeKey String?   @unique
   createdAt DateTime @default(now())
 
   vessel    Vessel     @relation(fields: [vesselId], references: [id], onDelete: Cascade)
