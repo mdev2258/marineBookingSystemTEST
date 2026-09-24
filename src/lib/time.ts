@@ -123,12 +123,17 @@ export function yearsBetween(from: LondonDate, to: LondonDate): number {
   return years;
 }
 
-/** Whole months between two London dates, rounded down. */
+/**
+ * Whole months between two London dates, rounded down: the largest n with
+ * addMonths(from, n) <= to. Uses the same end-of-month clamp as addMonths, so
+ * 31 Mar -> 30 Apr next year is 13 months, as the service-due flag counts it.
+ */
 export function monthsBetween(from: LondonDate, to: LondonDate): number {
   const [fy, fm, fd] = from.split('-').map(Number);
   const [ty, tm, td] = to.split('-').map(Number);
   let months = (ty - fy) * 12 + (tm - fm);
-  if (td < fd) months -= 1;
+  const lastDay = new Date(Date.UTC(ty, tm, 0)).getUTCDate();
+  if (Math.min(fd, lastDay) > td) months -= 1;
   return months;
 }
 
@@ -155,4 +160,15 @@ export function daysBetween(from: LondonDate, to: LondonDate): number {
 /** "Saturday 19 September 2026", from a bare LondonDate. */
 export function formatLondonDateLong(date: LondonDate): string {
   return formatInTimeZone(londonDayBounds(date).start, LONDON, 'd MMMM yyyy');
+}
+
+/**
+ * "is due today" / "was due yesterday" / "was due 9 days ago", from the real
+ * gap. The invoice chase used to say "due today" whatever the date.
+ */
+export function dueWording(dueOn: LondonDate, today: LondonDate): string {
+  const late = daysBetween(dueOn, today);
+  if (late <= 0) return 'is due today';
+  if (late === 1) return 'was due yesterday';
+  return `was due ${late} days ago`;
 }

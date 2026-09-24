@@ -38,9 +38,16 @@ export async function sendReminderBatch(formData: FormData): Promise<void> {
     });
     if (count === 0) continue;
 
-    const result = await sendServiceReminderEmail(id);
+    // A throw must restore the claim too, or the reminder keeps its token and
+    // can never be claimed (or sent) again.
+    let ok = false;
+    try {
+      ok = !!(await sendServiceReminderEmail(id))?.ok;
+    } catch (e) {
+      console.error('service reminder failed', id, e);
+    }
 
-    if (result?.ok) {
+    if (ok) {
       await prisma.reminder.update({
         where: { id },
         data: { status: 'sent', sentAt: new Date() },
@@ -64,6 +71,8 @@ export async function sendReminderBatch(formData: FormData): Promise<void> {
  */
 export async function dismissReminder(id: string): Promise<void> {
   await requireAdmin();
+  // Checked before Prisma: an undefined id would drop the filter.
+  if (typeof id !== 'string' || id.length === 0) redirect('/admin/reminders');
 
   await prisma.reminder.updateMany({
     where: { id, status: 'upcoming' },

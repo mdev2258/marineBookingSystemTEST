@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import {
+  addDays,
   addMonths,
   addYears,
   londonDayBounds,
@@ -143,15 +144,12 @@ export async function findDueWork(today: LondonDate = todayInLondon()): Promise<
   return due;
 }
 
-export type SweepResult = { found: number; created: number; alreadyOpen: number };
+export type SweepResult = { found: number; created: number; alreadyOpen: number; lapsed: number };
 
 /**
- * How long a CLOSED reminder -- skipped by the trade, or answered "yes" by the
- * owner -- keeps the same question from being asked again.
- *
- * Eleven months, not twelve, so the seasonal ones come round again: a
- * winterisation reminder closed in late September must not block the next
- * one in early September a year later.
+ * How long a CLOSED non-seasonal reminder -- skipped by the trade, or answered
+ * "yes" by the owner -- keeps the same question from being asked again,
+ * counted from the answer (closedAt ?? createdAt).
  *
  * Without this, "Skip" lasted until midnight. The sweep runs nightly and the
  * rigging is still old tomorrow, so a skipped boat was back on the list by
@@ -162,38 +160,86 @@ export type SweepResult = { found: number; created: number; alreadyOpen: number 
 const QUIET_MONTHS = 11;
 
 /**
+ * Seasonal kinds are asked ONCE PER SEASON, keyed to the year, not by a quiet
+ * period. Counting 11 months from a late answer (a February ask answered in
+ * April) would block the next February, and the boat would skip a season.
+ */
+const SEASONAL_KINDS = ['antifoul', 'commission', 'winterise'];
+
+/** A sent reminder the owner has ignored this long is closed by the sweep. */
+const IGNORED_DAYS = 60;
+
+/**
+ * The due occurrence a reminder belongs to. Seasonal: the year, so one per
+ * season. Others: the dueOn year-month -- dueOn is the sweep date, and the
+ * quiet period means the same question cannot legitimately be asked twice in
+ * one month, so this is stable across overlapping sweeps (same night, same
+ * key) without ever colliding with a fair re-ask 11+ months later.
+ */
+export function reminderPeriod(kind: string, dueOn: LondonDate): string {
+  return SEASONAL_KINDS.includes(kind) ? dueOn.slice(0, 4) : dueOn.slice(0, 7);
+}
+
+/** Reminder.dedupeKey. Unique in the DB, so a duplicate insert is refused. */
+export function dedupeKeyFor(r: {
+  vesselId: string;
+  kind: string;
+  equipmentId: string | null;
+  dueOn: LondonDate;
+}): string {
+  return `${r.vesselId}|${r.kind}|${r.equipmentId ?? ''}|${reminderPeriod(r.kind, r.dueOn)}`;
+}
+
+/**
+ * Does this existing reminder stop the same question being asked today?
+ * Still in play (upcoming/sent): yes. Seasonal and closed: only in the same
+ * year. Otherwise closed: only within QUIET_MONTHS of the answer.
+ */
+export function blocksNewAsk(
+  r: { kind: string; status: string; dueOn: LondonDate; closedAt: Date | null; createdAt: Date },
+  today: LondonDate,
+): boolean {
+  if (r.status === 'upcoming' || r.status === 'sent') return true;
+  if (SEASONAL_KINDS.includes(r.kind)) return r.dueOn.slice(0, 4) === today.slice(0, 4);
+  return (r.closedAt ?? r.createdAt) >= londonDayBounds(addMonths(today, -QUIET_MONTHS)).start;
+}
+
+/**
  * Write the ones that are not already on the list.
  *
  * IDEMPOTENT BY DESIGN, and it has to be: this runs nightly, and the rules
  * above keep returning "the rigging is still old" every single night until
- * somebody does something about it. Without the open-reminder check the trade
- * would open the screen to forty copies of the same boat and stop opening it.
- *
- * "Open" means upcoming or sent, OR closed (skipped, or said yes to) within
- * the last QUIET_MONTHS. After that the question is fair again -- the rigging
- * is a year older and the owner may have changed their mind.
+ * somebody does something about it. Two guards: the in-memory open-set filter
+ * (blocksNewAsk) keeps the list clean, and the unique dedupeKey with
+ * skipDuplicates makes the DATABASE refuse the copy when two sweeps overlap.
  */
 export async function sweepDueWork(today: LondonDate = todayInLondon()): Promise<SweepResult> {
+  // An owner who never answers closes the question, so it can be asked again
+  // next time instead of never. closedAt starts the quiet period.
+  const { count: lapsed } = await prisma.reminder.updateMany({
+    where: { status: 'sent', sentAt: { lt: londonDayBounds(addDays(today, -IGNORED_DAYS)).start } },
+    data: { status: 'dismissed', closedAt: new Date() },
+  });
+
   const due = await findDueWork(today);
   const quietSince = londonDayBounds(addMonths(today, -QUIET_MONTHS)).start;
 
-  // One read and one insert, not a count + create per due item.
-  const open = await prisma.reminder.findMany({
+  // One read and one insert, not a count + create per due item. The WHERE is a
+  // superset; blocksNewAsk is the rule.
+  const rows = await prisma.reminder.findMany({
     where: {
       OR: [
-        // Still in play.
         { status: { in: ['upcoming', 'sent'] } },
-        // Closed recently -- skipped, or said yes to. Leave them be. Counted
-        // from the answer, not the ask; rows older than closedAt use createdAt.
-        { status: { in: ['dismissed', 'booked'] }, closedAt: { gte: quietSince } },
-        { status: { in: ['dismissed', 'booked'] }, closedAt: null, createdAt: { gte: quietSince } },
+        { closedAt: { gte: quietSince } },
+        { closedAt: null, createdAt: { gte: quietSince } },
+        { dueOn: { gte: `${today.slice(0, 4)}-01-01` } },
       ],
     },
-    select: { vesselId: true, kind: true, equipmentId: true },
+    select: { vesselId: true, kind: true, equipmentId: true, status: true, dueOn: true, closedAt: true, createdAt: true },
   });
   const keyOf = (r: { vesselId: string; kind: string; equipmentId: string | null }) =>
     `${r.vesselId}|${r.kind}|${r.equipmentId ?? ''}`;
-  const openKeys = new Set(open.map(keyOf));
+  const openKeys = new Set(rows.filter((r) => blocksNewAsk(r, today)).map(keyOf));
 
   const toCreate = due.filter((d) => {
     const key = keyOf(d);
@@ -210,8 +256,10 @@ export async function sweepDueWork(today: LondonDate = todayInLondon()): Promise
       dueOn: d.dueOn,
       status: 'upcoming',
       message: d.message,
+      dedupeKey: dedupeKeyFor(d),
     })),
+    skipDuplicates: true,
   });
 
-  return { found: due.length, created, alreadyOpen: due.length - toCreate.length };
+  return { found: due.length, created, alreadyOpen: due.length - created, lapsed };
 }

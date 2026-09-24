@@ -17,21 +17,37 @@ export async function GET(request: Request) {
     return new Response('Unauthorized', { status: 401 });
   }
 
-  const swept = await sweepExpiredHolds();
-  const reminders = await sendReminders();
+  // Each step on its own: one throw must not skip the rest of the night, least
+  // of all the invoice chase at the end.
+  let ok = true;
+  const step = async <T,>(name: string, fn: () => Promise<T>): Promise<T | { error: string }> => {
+    try {
+      return await fn();
+    } catch (e) {
+      console.error(`cron step ${name} failed`, e);
+      ok = false;
+      return { error: e instanceof Error ? e.message : String(e) };
+    }
+  };
+
+  const swept = await step('expiredHolds', () => sweepExpiredHolds());
+  const reminders = await step('reminders', () => sendReminders());
   // One chase per unanswered variation, 24h after it was raised, then stop.
-  const variations = await chaseVariations();
+  const variations = await step('variations', () => chaseVariations());
   // FINDS due work; never sends it. Emailing owners is a deliberate act on the
   // "due this month" screen, not something a timer does unattended.
-  const dueWork = await sweepDueWork();
+  const dueWork = await step('dueWork', () => sweepDueWork());
   // Two chases per unpaid invoice, ever: on the due date and a week after.
-  const invoices = await chaseInvoices();
+  const invoices = await step('invoices', () => chaseInvoices());
 
-  return Response.json({
-    ...reminders,
-    expiredHoldsSwept: swept,
-    variationsChased: variations,
-    dueWork,
-    invoicesChased: invoices,
-  });
+  return Response.json(
+    {
+      reminders,
+      expiredHoldsSwept: swept,
+      variationsChased: variations,
+      dueWork,
+      invoicesChased: invoices,
+    },
+    { status: ok ? 200 : 500 },
+  );
 }

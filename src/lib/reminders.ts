@@ -71,11 +71,15 @@ export async function sweepExpiredHolds(now: Date = new Date()): Promise<number>
  * the trade is waiting, so one nudge is useful and a second is nagging a
  * customer the trade has to keep.
  *
- * `reminderSentAt` is the thing that makes it exactly one, and it is stamped
- * only on a successful send -- a provider outage retries on the next run
- * rather than silently swallowing the chase.
+ * CLAIM, THEN SEND, as chaseInvoices does. `reminderSentAt` is stamped first,
+ * guarded by `null` in the WHERE, so of two overlapping runs only one emails.
+ * A failed or thrown send puts it back, so an outage retries on the next run.
+ * A job with no owner has nobody to email: the claim is kept, so it is not
+ * retried every night, and it is counted as skipped.
  */
-export async function chaseVariations(now: Date = new Date()): Promise<ReminderResult> {
+export async function chaseVariations(
+  now: Date = new Date(),
+): Promise<ReminderResult & { skipped: number }> {
   const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
   const due = await prisma.variation.findMany({
@@ -87,26 +91,44 @@ export async function chaseVariations(now: Date = new Date()): Promise<ReminderR
       // worth chasing them about.
       token: { not: null },
     },
-    select: { id: true },
+    select: { id: true, booking: { select: { customerId: true, vesselId: true } } },
   });
 
   let sent = 0;
   let failed = 0;
+  let skipped = 0;
 
   for (const variation of due) {
-    const result = await sendVariationEmail(variation.id, true);
-    if (result?.ok) {
-      await prisma.variation.update({
-        where: { id: variation.id },
-        data: { reminderSentAt: new Date() },
-      });
+    const { count } = await prisma.variation.updateMany({
+      where: { id: variation.id, status: 'awaiting_owner', reminderSentAt: null },
+      data: { reminderSentAt: new Date() },
+    });
+    if (count === 0) continue;
+
+    // sendVariationEmail can only return null for these; the stamp stays.
+    if (!variation.booking.customerId || !variation.booking.vesselId) {
+      skipped++;
+      continue;
+    }
+
+    let ok = false;
+    try {
+      ok = !!(await sendVariationEmail(variation.id, true))?.ok;
+    } catch (e) {
+      console.error('variation chase failed', variation.id, e);
+    }
+    if (ok) {
       sent++;
     } else {
+      await prisma.variation.update({
+        where: { id: variation.id },
+        data: { reminderSentAt: null },
+      });
       failed++;
     }
   }
 
-  return { considered: due.length, sent, failed };
+  return { considered: due.length, sent, failed, skipped };
 }
 
 /**
@@ -130,7 +152,8 @@ export function invoiceChaseStage(
 ): 'due' | 'overdue' | null {
   if (inv.dueOn > today) return null;
   if (inv.dueOn <= addDays(today, -7) && !inv.overdueReminderSentAt) return 'overdue';
-  if (!inv.dueReminderSentAt) return 'due';
+  // Never a "due" email after the "overdue" one.
+  if (!inv.dueReminderSentAt && !inv.overdueReminderSentAt) return 'due';
   return null;
 }
 
@@ -160,7 +183,7 @@ export async function chaseInvoices(now: Date = new Date()): Promise<ReminderRes
       where:
         stage === 'overdue'
           ? { id: inv.id, status: 'sent', overdueReminderSentAt: null }
-          : { id: inv.id, status: 'sent', dueReminderSentAt: null },
+          : { id: inv.id, status: 'sent', dueReminderSentAt: null, overdueReminderSentAt: null },
       data:
         stage === 'overdue'
           ? { overdueReminderSentAt: stamp, dueReminderSentAt: inv.dueReminderSentAt ?? stamp }

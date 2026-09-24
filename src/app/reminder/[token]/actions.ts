@@ -21,9 +21,15 @@ import { REMINDER_JOB_TITLE, type ReminderKind } from '@/lib/enums';
  * interested", not agreed a price, and the board should say exactly that.
  */
 export async function bookFromReminder(token: string): Promise<void> {
+  // Checked before Prisma: an undefined or object token would drop the filter.
+  if (typeof token !== 'string' || token.length === 0) redirect('/reminder/done');
+
   const reminder = await prisma.reminder.findUnique({
     where: { token },
-    include: { vessel: { select: { id: true, operatorId: true, customerId: true, currentPlaceId: true } } },
+    include: {
+      vessel: { select: { id: true, operatorId: true, customerId: true, currentPlaceId: true } },
+      equipment: { select: { kind: true } },
+    },
   });
   if (!reminder) redirect('/reminder/done');
 
@@ -33,7 +39,10 @@ export async function bookFromReminder(token: string): Promise<void> {
   });
   if (count === 0) redirect('/reminder/done');
 
-  const title = REMINDER_JOB_TITLE[reminder.kind as ReminderKind] ?? 'Booked from a reminder';
+  const title =
+    reminder.kind === 'service_due' && reminder.equipment?.kind === 'outboard'
+      ? 'Outboard service'
+      : (REMINDER_JOB_TITLE[reminder.kind as ReminderKind] ?? 'Booked from a reminder');
 
   const card = await prisma.booking.create({
     data: {
