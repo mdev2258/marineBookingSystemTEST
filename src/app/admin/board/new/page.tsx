@@ -48,7 +48,7 @@ export default async function QuickAddPage(props: PageProps<'/admin/board/new'>)
           />
         </div>
 
-        <OwnerFields error={params.error === 'owner'} />
+        <OwnerFields error={params.error} />
 
         <PlaceField places={places} />
 

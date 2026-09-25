@@ -61,16 +61,6 @@ export default async function EstimatePage(props: PageProps<'/admin/board/[id]/e
         </p>
       </div>
 
-      {params.saved === '1' && (
-        <p role="status" className="border border-divider bg-neutral-100 p-3 text-[13.5px]">
-          Lines saved.
-        </p>
-      )}
-      {params.saved === 'withdrawn' && (
-        <p role="status" className="border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
-          Lines saved. The total changed, so the estimate the owner had is withdrawn — send them a fresh one below.
-        </p>
-      )}
       {params.error === 'empty' && (
         <p role="alert" className="border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
           Add at least one line before sending it.
@@ -88,7 +78,25 @@ export default async function EstimatePage(props: PageProps<'/admin/board/[id]/e
       )}
 
       <LinesForm
+        // Lines are rewritten (new ids) on every successful save, so this
+        // remounts the form then and clears a stale refusal; a refused save
+        // changes nothing and keeps the typing.
+        key={job.lineItems.map((l) => l.id).join(',') || 'none'}
         action={saveLines.bind(null, job.id)}
+        notice={
+          <>
+          {params.saved === '1' && (
+            <p role="status" className="border border-divider bg-neutral-100 p-3 text-[13.5px]">
+              Lines saved.
+            </p>
+          )}
+          {params.saved === 'withdrawn' && (
+            <p role="status" className="border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
+              Lines saved. The total changed, so the estimate the owner had is withdrawn — send them a fresh one below.
+            </p>
+          )}
+          </>
+        }
         saved={job.lineItems.map((l) => ({
           kind: l.kind,
           description: l.description,

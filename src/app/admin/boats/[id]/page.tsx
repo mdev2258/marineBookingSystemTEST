@@ -73,7 +73,7 @@ export default async function BoatPage(props: PageProps<'/admin/boats/[id]'>) {
             <p className="text-[14px] muted">
               No owner on file yet, so nothing about this boat can be emailed.
             </p>
-            <OwnerFields error={params.error === 'owner'} note="Estimates, extra work and the owner's boat link go to this email." />
+            <OwnerFields error={params.error} note="Estimates, extra work and the owner's boat link go to this email." />
             <button type="submit" className="k min-h-12 border border-ink px-4 hover:bg-neutral-200">
               Add the owner
             </button>

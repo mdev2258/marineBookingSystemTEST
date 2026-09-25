@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { generateRebookToken } from '@/lib/reference';
 import { nextPosition } from '@/lib/board';
@@ -37,7 +38,16 @@ export function daysOutstanding(
 
 export type IssueResult =
   | { ok: true; invoiceId: string; number: string }
-  | { ok: false; reason: 'not_ready' | 'nothing_to_bill' | 'already_invoiced' | 'too_big' };
+  | { ok: false; reason: IssueFailure };
+
+type IssueFailure = 'not_ready' | 'nothing_to_bill' | 'already_invoiced' | 'too_big';
+
+/** Thrown inside the issue transaction so the claim rolls back with it. */
+class InvoiceRefused extends Error {
+  constructor(readonly reason: IssueFailure) {
+    super(reason);
+  }
+}
 
 export type InvoiceLineDraft = {
   kind: string | null;
@@ -171,98 +181,119 @@ export async function issueInvoice(jobId: string): Promise<IssueResult> {
   const op = await prisma.operator.findFirst();
   if (!op) throw new Error('No business row. Run `npm run seed`.');
 
-  const job = await prisma.booking.findUnique({
-    where: { id: jobId },
-    include: {
-      customer: { select: { name: true } },
-      lineItems: { where: { done: true }, orderBy: { sortOrder: 'asc' } },
-      variations: { where: { status: 'approved' }, orderBy: { createdAt: 'asc' } },
-      invoices: { where: { status: { in: ['sent', 'paid'] } }, select: { id: true } },
-      // What the owner was shown: the accepted estimate, else the one still out.
-      estimates: {
-        where: { status: { in: ['accepted', 'sent'] } },
-        orderBy: { createdAt: 'desc' },
-        include: { lines: { select: { description: true, vatRateBps: true } } },
+  const loadJob = (db: Prisma.TransactionClient) =>
+    db.booking.findUnique({
+      where: { id: jobId },
+      include: {
+        customer: { select: { name: true } },
+        lineItems: { where: { done: true }, orderBy: { sortOrder: 'asc' } },
+        variations: { where: { status: 'approved' }, orderBy: { createdAt: 'asc' } },
+        invoices: { where: { status: { in: ['sent', 'paid'] } }, select: { id: true } },
+        // What the owner was shown: the accepted estimate, else the one still out.
+        estimates: {
+          where: { status: { in: ['accepted', 'sent'] } },
+          orderBy: { createdAt: 'desc' },
+          include: { lines: { select: { description: true, vatRateBps: true } } },
+        },
       },
-    },
-  });
-  if (!job) return { ok: false, reason: 'not_ready' };
-  if (job.invoices.length > 0) return { ok: false, reason: 'already_invoiced' };
-
-  const agreed = job.estimates.find((e) => e.status === 'accepted') ?? job.estimates[0] ?? null;
-
+    });
   // What actually gets billed: work ticked off, plus extra work the owner said
   // yes to. A line nobody ticked is not billed; a variation nobody approved is
   // not billed -- that is the entire point of recording the approval.
-  const lines = invoiceLinesFor({
-    vatRegistered: op.vatRegistered,
-    doneLines: job.lineItems,
-    agreed,
-    approvedVariations: job.variations,
-  });
-  if (lines.length === 0) return { ok: false, reason: 'nothing_to_bill' };
+  const bill = (job: NonNullable<Awaited<ReturnType<typeof loadJob>>>) => {
+    const agreed = job.estimates.find((e) => e.status === 'accepted') ?? job.estimates[0] ?? null;
+    const lines = invoiceLinesFor({
+      vatRegistered: op.vatRegistered,
+      doneLines: job.lineItems,
+      agreed,
+      approvedVariations: job.variations,
+    });
+    const totals = totalsFor(lines, op.vatRegistered);
+    // Postgres Int. Each line is capped on save; the SUM is not.
+    const refused: IssueFailure | null =
+      lines.length === 0 ? 'nothing_to_bill' : totals.gross > MAX_PENCE ? 'too_big' : null;
+    return { lines, totals, refused };
+  };
 
-  const totals = totalsFor(lines, op.vatRegistered);
-  // Postgres Int. Each line is capped on save; the SUM is not, and a sum past
-  // this is a 500 in the middle of issuing.
-  if (totals.gross > MAX_PENCE) return { ok: false, reason: 'too_big' };
+  // A cheap early answer for the common refusals, before claiming anything.
+  const preview = await loadJob(prisma);
+  if (!preview) return { ok: false, reason: 'not_ready' };
+  if (preview.invoices.length > 0) return { ok: false, reason: 'already_invoiced' };
+  const early = bill(preview).refused;
+  if (early) return { ok: false, reason: early };
+
   const issuedOn = todayInLondon();
 
-  const result = await prisma.$transaction(async (tx) => {
-    // Claim the card. Zero rows means it has already been invoiced.
-    const claimed = await tx.booking.updateMany({
-      where: {
-        id: jobId,
-        column: 'done_to_invoice',
-        invoices: { none: { status: { in: ['sent', 'paid'] } } },
-      },
-      data: {
-        column: 'invoiced',
-        columnChangedAt: new Date(),
-        position: await nextPosition('invoiced', tx),
-      },
-    });
-    if (claimed.count === 0) return null;
-
-    // Extra work still waiting on the owner can no longer be billed, so it is
-    // withdrawn with the issue: an owner approving it afterwards would be told
-    // it goes on an invoice that has already gone, and the nightly chase
-    // would keep asking.
-    await tx.variation.updateMany({
-      where: { bookingId: jobId, status: 'awaiting_owner' },
-      data: { status: 'withdrawn', decidedAt: new Date(), token: null },
-    });
-
-    // Take the next number. Incremented, not read-then-written.
-    const counter = await tx.operator.update({
-      where: { id: op.id },
-      data: { nextInvoiceNumber: { increment: 1 } },
-      select: { nextInvoiceNumber: true, invoicePrefix: true, paymentTermsDays: true },
-    });
-    const number = formatInvoiceNumber(counter.invoicePrefix, counter.nextInvoiceNumber - 1);
-
-    const invoice = await tx.invoice.create({
-      data: {
-        operatorId: op.id,
-        bookingId: jobId,
-        number,
-        issuedOn,
-        dueOn: addDays(issuedOn, counter.paymentTermsDays),
-        totalPence: totals.gross,
-        vatPence: totals.vat ?? 0,
-        status: 'sent',
-        token: generateRebookToken(),
-        sellerText: JSON.stringify(sellerFrom(op)),
-        customerName: job.customer?.name ?? null,
-        lines: {
-          create: lines.map((l, i) => ({ ...l, sortOrder: i })),
+  let result: { id: string; number: string } | null;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      // Claim the card. Zero rows means it has already been invoiced.
+      const claimed = await tx.booking.updateMany({
+        where: {
+          id: jobId,
+          column: 'done_to_invoice',
+          invoices: { none: { status: { in: ['sent', 'paid'] } } },
         },
-      },
-      select: { id: true, number: true },
-    });
+        data: {
+          column: 'invoiced',
+          columnChangedAt: new Date(),
+          position: await nextPosition('invoiced', tx),
+        },
+      });
+      if (claimed.count === 0) return null;
 
-    return invoice;
-  });
+      // Close everything still out with the owner BEFORE reading what to bill.
+      // An approval that committed first is read below and billed; one that
+      // arrives after finds its row withdrawn and is told so. Nothing can be
+      // agreed in the gap and then left off the invoice.
+      await tx.variation.updateMany({
+        where: { bookingId: jobId, status: 'awaiting_owner' },
+        data: { status: 'withdrawn', decidedAt: new Date(), token: null },
+      });
+      const job = await loadJob(tx);
+      if (!job) return null;
+      // An estimate still out would let the owner "accept" a job already
+      // billed. Its rates were read above, so it can go now.
+      await tx.estimate.updateMany({
+        where: { bookingId: jobId, status: 'sent' },
+        data: { status: 'superseded', token: null },
+      });
+
+      const { lines, totals, refused } = bill(job);
+      if (refused) throw new InvoiceRefused(refused); // rolls the claim back
+
+      // Take the next number. Incremented, not read-then-written.
+      const counter = await tx.operator.update({
+        where: { id: op.id },
+        data: { nextInvoiceNumber: { increment: 1 } },
+        select: { nextInvoiceNumber: true, invoicePrefix: true, paymentTermsDays: true },
+      });
+      const number = formatInvoiceNumber(counter.invoicePrefix, counter.nextInvoiceNumber - 1);
+
+      return tx.invoice.create({
+        data: {
+          operatorId: op.id,
+          bookingId: jobId,
+          number,
+          issuedOn,
+          dueOn: addDays(issuedOn, counter.paymentTermsDays),
+          totalPence: totals.gross,
+          vatPence: totals.vat ?? 0,
+          status: 'sent',
+          token: generateRebookToken(),
+          sellerText: JSON.stringify(sellerFrom(op)),
+          customerName: job.customer?.name ?? null,
+          lines: {
+            create: lines.map((l, i) => ({ ...l, sortOrder: i })),
+          },
+        },
+        select: { id: true, number: true },
+      });
+    });
+  } catch (e) {
+    if (e instanceof InvoiceRefused) return { ok: false, reason: e.reason };
+    throw e;
+  }
 
   if (!result) return { ok: false, reason: 'not_ready' };
   return { ok: true, invoiceId: result.id, number: result.number };

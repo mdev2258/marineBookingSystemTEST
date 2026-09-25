@@ -4,7 +4,9 @@
  * the owner's boat link go, so without one the app sends nothing -- and says
  * so, rather than claiming it did.
  */
-export function OwnerFields({ error, note }: { error?: boolean; note?: string }) {
+/** `error` is the page's ?error= value; only the two owner ones show here. */
+export function OwnerFields({ error: code, note }: { error?: string | string[]; note?: string }) {
+  const error = code === 'owner' || code === 'owner_exists';
   return (
     <fieldset
       className="space-y-3"
@@ -17,7 +19,9 @@ export function OwnerFields({ error, note }: { error?: boolean; note?: string })
       </p>
       {error && (
         <p id="owner-error" role="alert" className="text-[13.5px] font-semibold text-accent-800">
-          An owner needs a name and an email address that looks right.
+          {code === 'owner_exists'
+            ? 'That boat already has a different owner on file, so nothing was changed.'
+            : 'An owner needs a name and an email address that looks right.'}
         </p>
       )}
       <div>

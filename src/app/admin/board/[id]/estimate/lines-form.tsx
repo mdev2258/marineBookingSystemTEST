@@ -17,11 +17,14 @@ export function LinesForm({
   action,
   saved,
   defaultUnitPrice,
+  notice,
   children,
 }: {
   action: (prev: LinesState, formData: FormData) => Promise<LinesState>;
   saved: DraftRow[];
   defaultUnitPrice: string;
+  /** The "Lines saved" banner from the URL. Hidden while a refusal is showing. */
+  notice?: ReactNode;
   /** The running total, shown between the table and the button. */
   children?: ReactNode;
 }) {
@@ -32,6 +35,7 @@ export function LinesForm({
 
   return (
     <form action={formAction} className="mt-4">
+      {!state?.error && notice}
       {state?.error && (
         <p role="alert" className="border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
           {state.error}

@@ -72,7 +72,7 @@ export default async function SortPage(props: PageProps<'/admin/board/[id]/sort'
           />
         </div>
 
-        <OwnerFields error={params.error === 'owner'} />
+        <OwnerFields error={params.error} />
 
         <PlaceField places={places} />
 

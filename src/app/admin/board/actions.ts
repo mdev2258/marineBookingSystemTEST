@@ -105,7 +105,16 @@ function readOwner(formData: FormData): Owner | null | 'bad' {
  * variation emails carry. Jobs already on the boat with no owner pick it up,
  * or their emails would still have nowhere to go.
  */
-async function attachOwner(vesselId: string, opId: string, owner: Owner): Promise<void> {
+// Returns false when the boat already has a DIFFERENT owner: that is refused
+// out loud, not silently ignored, or estimates would go to the old owner while
+// the trade believes they typed in the new one.
+async function attachOwner(vesselId: string, opId: string, owner: Owner): Promise<boolean> {
+  const current = await prisma.vessel.findUnique({
+    where: { id: vesselId },
+    select: { customer: { select: { email: true } } },
+  });
+  if (current?.customer && current.customer.email !== owner.email) return false;
+
   const customer = await prisma.customer.upsert({
     where: { operatorId_email: { operatorId: opId, email: owner.email } },
     create: { operatorId: opId, name: owner.name, email: owner.email, phone: owner.phone },
@@ -129,6 +138,7 @@ async function attachOwner(vesselId: string, opId: string, owner: Owner): Promis
       data: { customerId: vessel.customerId },
     });
   }
+  return true;
 }
 
 /**
@@ -164,7 +174,9 @@ export async function sortJot(id: string, formData: FormData): Promise<void> {
   if (owner === 'bad') redirect(`/admin/board/${id}/sort?error=owner`);
 
   const vesselId = await findOrCreateVessel(vesselName, opId);
-  if (vesselId && owner) await attachOwner(vesselId, opId, owner);
+  if (vesselId && owner && !(await attachOwner(vesselId, opId, owner))) {
+    redirect(`/admin/board/${id}/sort?error=owner_exists`);
+  }
   // The boat carries the owner. A boat created just now with no owner typed
   // has neither, and that is allowed to stay true.
   const vessel = vesselId
@@ -205,7 +217,9 @@ export async function quickAdd(formData: FormData): Promise<void> {
   if (owner === 'bad') redirect('/admin/board/new?error=owner');
 
   const vesselId = await findOrCreateVessel(vesselName, opId);
-  if (vesselId && owner) await attachOwner(vesselId, opId, owner);
+  if (vesselId && owner && !(await attachOwner(vesselId, opId, owner))) {
+    redirect('/admin/board/new?error=owner_exists');
+  }
   const vessel = vesselId
     ? await prisma.vessel.findUnique({
         where: { id: vesselId },
@@ -240,7 +254,9 @@ export async function setBoatOwner(vesselId: string, formData: FormData): Promis
   const owner = readOwner(formData);
   if (!owner || owner === 'bad') redirect(`/admin/boats/${vesselId}?error=owner#owner`);
 
-  await attachOwner(vesselId, await operatorId(), owner);
+  if (!(await attachOwner(vesselId, await operatorId(), owner))) {
+    redirect(`/admin/boats/${vesselId}?error=owner_exists#owner`);
+  }
 
   revalidatePath(`/admin/boats/${vesselId}`);
   revalidatePath('/admin/board');
