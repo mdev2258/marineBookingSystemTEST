@@ -73,12 +73,11 @@ export type InvoiceLineDraft = {
  *
  * A business that is not registered cannot charge VAT, whatever was agreed.
  */
-// ponytail: variations take registration NOW, not "at raise" -- exact until the business registers mid-job; a Variation.vatRateBps column would freeze it.
 export function invoiceLinesFor(input: {
   vatRegistered: boolean;
   doneLines: { kind: string; description: string; qty: number; unitPricePence: number; amountPence: number }[];
   agreed: { vatPence: number; lines: { description: string; vatRateBps: number }[] } | null;
-  approvedVariations: { description: string; estimatePence: number }[];
+  approvedVariations: { description: string; estimatePence: number; vatRateBps?: number | null }[];
 }): InvoiceLineDraft[] {
   const now = currentVatBps(input.vatRegistered);
   const rateFor = (description: string): number => {
@@ -102,7 +101,8 @@ export function invoiceLinesFor(input: {
       qty: 1,
       unitPricePence: v.estimatePence,
       amountPence: v.estimatePence,
-      vatRateBps: now,
+      // The rate the owner was shown when it was raised; older rows use today's.
+      vatRateBps: input.vatRegistered ? (v.vatRateBps ?? now) : 0,
     })),
   ];
 }

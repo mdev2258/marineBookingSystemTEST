@@ -468,6 +468,9 @@ model Variation {
   /// Why it is needed. This is the bit that stops the argument in March.
   reason        String?
   estimatePence Int
+  /// VAT rate when it was raised -- the moment the owner saw its price. Null on
+  /// older rows, which fall back to registration at invoicing.
+  vatRateBps    Int?
 
   /// awaiting_owner | approved | declined | withdrawn
   status String @default("awaiting_owner")

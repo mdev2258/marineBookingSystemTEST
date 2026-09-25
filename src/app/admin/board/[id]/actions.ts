@@ -375,6 +375,7 @@ export async function raiseVariation(jobId: string, formData: FormData): Promise
           description,
           reason: reason || null,
           estimatePence,
+          vatRateBps: currentVatBps((await business()).vatRegistered),
           status: 'awaiting_owner',
           token: generateRebookToken(),
           formNonce,
