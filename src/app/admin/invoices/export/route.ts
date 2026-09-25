@@ -34,7 +34,9 @@ function pounds(pence: number): string {
  *
  * Voided invoices are INCLUDED, with their status, rather than filtered out.
  * A gap in the number sequence is the first thing an accountant or HMRC asks
- * about, and the answer has to be in the file, not in somebody's memory.
+ * about, and the answer has to be in the file, not in somebody's memory. But
+ * their money columns are 0.00: summing the Total column must give what was
+ * actually billed, and a void billed nothing.
  *
  * Re-checks the cookie itself: src/proxy.ts is a redirect for humans, not an
  * authorisation boundary, and this is a GET anyone could request.
@@ -79,17 +81,21 @@ export async function GET() {
     'Paid via',
   ];
 
+  const billed = (i: { status: string; totalPence: number }) => (i.status === 'void' ? 0 : i.totalPence);
+  const vatOf = (i: { status: string; vatPence: number }) => (i.status === 'void' ? 0 : i.vatPence);
+
   const rows = invoices.map((i) => [
     i.number,
     i.issuedOn,
     i.dueOn,
     i.status,
-    i.booking.customer?.name ?? '',
+    // As issued, when the invoice has the snapshot.
+    i.customerName ?? i.booking.customer?.name ?? '',
     i.booking.customer?.email ?? '',
     i.booking.vessel?.name ?? '',
     i.booking.title,
-    ...(vat ? [pounds(i.totalPence - i.vatPence), pounds(i.vatPence)] : []),
-    pounds(i.totalPence),
+    ...(vat ? [pounds(billed(i) - vatOf(i)), pounds(vatOf(i))] : []),
+    pounds(billed(i)),
     i.paidOn ?? '',
     i.paidVia ?? '',
   ]);

@@ -4,29 +4,25 @@ import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { AdminShell } from '@/components/admin/shell';
 import { saveLines, sendEstimate } from '@/app/admin/board/[id]/actions';
-import { LINE_KIND, LINE_KIND_LABEL, type LineKind } from '@/lib/enums';
 import { formatPence, penceToPoundsInput } from '@/lib/money';
-import { totalsFor } from '@/lib/estimates';
+import { workingTotals } from '@/lib/estimates';
+import { LinesForm } from './lines-form';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = { title: 'Estimate — Harbourside Marine Services' };
-
-/** Blank rows offered on every render, so a line can always be added without JS. */
-const SPARE_ROWS = 3;
 
 /**
  * Build the estimate.
  *
  * The line list belongs to the JOB, not to the estimate: this is the same
  * list the trade later ticks off as work gets done, and that the invoice
- * snapshots. Sending an estimate takes a copy of its total at that moment;
+ * snapshots. Sending an estimate copies the lines as they are at that moment;
  * changing the total afterwards withdraws it (saveLines) rather than drift.
  *
- * No JavaScript: the form always renders three spare rows, and rows with no
- * description are dropped on save. An "Add row" button would need a client
- * component and a hydration boundary to do something three empty inputs
- * already do.
+ * The form always renders three spare rows, and rows with no description are
+ * dropped on save. The table is a small client component only so that a
+ * refused save can hand the typing back (see LinesForm).
  */
 export default async function EstimatePage(props: PageProps<'/admin/board/[id]/estimate'>) {
   const { id } = await props.params;
@@ -45,9 +41,10 @@ export default async function EstimatePage(props: PageProps<'/admin/board/[id]/e
   ]);
   if (!job || !business) notFound();
 
-  const totals = totalsFor(job.lineItems, business.vatRegistered);
+  const totals = workingTotals(job.lineItems, business.vatRegistered);
   const live = job.estimates.find((e) => e.status === 'sent');
-  const rows = [...job.lineItems, ...Array(SPARE_ROWS).fill(null)];
+  // Billed, or billed and paid: the price is settled, so nothing more goes out.
+  const locked = job.column === 'invoiced' || job.column === 'paid';
 
   return (
     <AdminShell>
@@ -65,7 +62,9 @@ export default async function EstimatePage(props: PageProps<'/admin/board/[id]/e
       </div>
 
       {params.saved === '1' && (
-        <p className="border border-divider bg-neutral-100 p-3 text-[13.5px]">Lines saved.</p>
+        <p role="status" className="border border-divider bg-neutral-100 p-3 text-[13.5px]">
+          Lines saved.
+        </p>
       )}
       {params.saved === 'withdrawn' && (
         <p role="status" className="border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
@@ -73,96 +72,32 @@ export default async function EstimatePage(props: PageProps<'/admin/board/[id]/e
         </p>
       )}
       {params.error === 'empty' && (
-        <p className="border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
+        <p role="alert" className="border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
           Add at least one line before sending it.
         </p>
       )}
-      {params.error === 'line' && (
+      {params.error === 'total' && (
         <p role="alert" className="border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
-          A quantity or price couldn’t be read — use numbers like 2.5 or 1,200. Nothing was saved.
+          The total is too big to send. Check the lines for a typo.
+        </p>
+      )}
+      {params.error === 'locked' && (
+        <p role="alert" className="border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
+          This job has been invoiced, so no new estimate can go out on it.
         </p>
       )}
 
-      <form action={saveLines.bind(null, job.id)} className="mt-4">
-        <table className="w-full border-collapse text-[13.5px]">
-          <thead>
-            <tr className="border-b border-divider text-left">
-              <th className="k py-2 pr-2">Done</th>
-              <th className="k py-2 pr-2">Kind</th>
-              <th className="k py-2 pr-2">Description</th>
-              <th className="k w-16 py-2 pr-2">Qty</th>
-              <th className="k w-24 py-2">Unit £</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((line, i) => (
-              <tr key={line?.id ?? `blank-${i}`} className="border-b border-divider align-top">
-                <td className="py-2 pr-2">
-                  {/* The index is the value, so a tick survives reordering
-                      within a single save. */}
-                  <input
-                    type="checkbox"
-                    name="done"
-                    value={String(i)}
-                    defaultChecked={line?.done ?? false}
-                    aria-label="Work done"
-                    className="mt-3 h-6 w-6 accent-accent-700"
-                  />
-                </td>
-                <td className="py-2 pr-2">
-                  <select
-                    name="kind"
-                    defaultValue={line?.kind ?? 'labour'}
-                    aria-label="Kind"
-                    className="min-h-11 w-full border border-divider bg-bg px-2"
-                  >
-                    {LINE_KIND.map((k) => (
-                      <option key={k} value={k}>
-                        {LINE_KIND_LABEL[k as LineKind]}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="py-2 pr-2">
-                  <input
-                    type="text"
-                    name="description"
-                    defaultValue={line?.description ?? ''}
-                    placeholder={i >= job.lineItems.length ? 'Add a line…' : ''}
-                    aria-label="Description"
-                    className="min-h-11 w-full border border-divider bg-bg px-2"
-                  />
-                </td>
-                <td className="py-2 pr-2">
-                  <input
-                    type="text"
-                    name="qty"
-                    inputMode="decimal"
-                    defaultValue={line ? String(line.qty) : ''}
-                    placeholder="1"
-                    aria-label="Quantity"
-                    className="min-h-11 w-full border border-divider bg-bg px-2"
-                  />
-                </td>
-                <td className="py-2">
-                  <input
-                    type="text"
-                    name="unitPrice"
-                    inputMode="decimal"
-                    defaultValue={
-                      line
-                        ? penceToPoundsInput(line.unitPricePence)
-                        : penceToPoundsInput(business.defaultLabourRatePence)
-                    }
-                    aria-label="Unit price in pounds"
-                    className="min-h-11 w-full border border-divider bg-bg px-2"
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
+      <LinesForm
+        action={saveLines.bind(null, job.id)}
+        saved={job.lineItems.map((l) => ({
+          kind: l.kind,
+          description: l.description,
+          qty: String(l.qty),
+          unitPrice: penceToPoundsInput(l.unitPricePence),
+          done: l.done,
+        }))}
+        defaultUnitPrice={penceToPoundsInput(business.defaultLabourRatePence)}
+      >
         <div className="mt-4 flex items-baseline justify-between border-t-2 border-ink pt-3">
           <span className="k">Total as it stands</span>
           <span className="numeric text-2xl">{formatPence(totals.gross)}</span>
@@ -170,42 +105,40 @@ export default async function EstimatePage(props: PageProps<'/admin/board/[id]/e
         {totals.vat !== null && (
           <p className="text-right text-[12.5px] muted">includes {formatPence(totals.vat)} VAT</p>
         )}
+      </LinesForm>
 
-        <button
-          type="submit"
-          className="k mt-4 min-h-12 border border-ink px-5 hover:bg-neutral-200"
-        >
-          Save lines
-        </button>
-      </form>
+      {!locked && (
+        <form action={sendEstimate.bind(null, job.id)} className="mt-10 border border-divider p-4">
+          {/* What this form last saw. The action claims the send against it,
+              so the same form submitted twice sends once. */}
+          <input type="hidden" name="seen" value={job.quotedAt?.toISOString() ?? ''} />
+          <h2 className="k">Send it to the owner</h2>
+          <p className="mt-1 text-[13.5px] muted">
+            {live
+              ? 'There is already an estimate out. Sending again supersedes it — the old one stays on record at its own price.'
+              : 'Saves a copy of the lines as they are now. Changing the total afterwards withdraws it, and you send a fresh one.'}
+          </p>
 
-      <form action={sendEstimate.bind(null, job.id)} className="mt-10 border border-divider p-4">
-        <h2 className="k">Send it to the owner</h2>
-        <p className="mt-1 text-[13.5px] muted">
-          {live
-            ? 'There is already an estimate out. Sending again supersedes it — the old one stays on record at its own price.'
-            : 'Saves a copy of the total as it is now. Changing the total afterwards withdraws it, and you send a fresh one.'}
-        </p>
+          <label htmlFor="notes" className="k mt-4 block">
+            Anything to say with it
+          </label>
+          <textarea
+            id="notes"
+            name="notes"
+            rows={3}
+            defaultValue={job.quoteNotes ?? ''}
+            placeholder="Assumes the mast comes down on a yard crane day. Time and materials beyond that."
+            className="mt-2 w-full border border-divider bg-bg p-2 text-[14px]"
+          />
 
-        <label htmlFor="notes" className="k mt-4 block">
-          Anything to say with it
-        </label>
-        <textarea
-          id="notes"
-          name="notes"
-          rows={3}
-          defaultValue={job.quoteNotes ?? ''}
-          placeholder="Assumes the mast comes down on a yard crane day. Time and materials beyond that."
-          className="mt-2 w-full border border-divider bg-bg p-2 text-[14px]"
-        />
-
-        <button
-          type="submit"
-          className="k mt-3 min-h-14 w-full bg-accent-900 px-6 text-bg hover:bg-ink sm:w-auto"
-        >
-          {live ? 'Send a new estimate' : 'Send the estimate'}
-        </button>
-      </form>
+          <button
+            type="submit"
+            className="k mt-3 min-h-14 w-full bg-accent-900 px-6 text-bg hover:bg-ink sm:w-auto"
+          >
+            {live ? 'Send a new estimate' : 'Send the estimate'}
+          </button>
+        </form>
+      )}
 
       {job.estimates.length > 0 && (
         <section className="mt-10 pb-10">

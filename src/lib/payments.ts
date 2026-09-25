@@ -205,7 +205,9 @@ export async function startInvoiceCheckout(invoiceId: string): Promise<{ url: st
  * second call matches zero rows and changes nothing.
  *
  * A paid job leaves the board and lives in the boat's history (§4), so the
- * card moves to `paid` in the same step.
+ * card moves to `paid` in the same step -- from WHATEVER column it is in. The
+ * money arriving is final; a card the trade had wandered elsewhere must not
+ * stay on the board for good with its bill settled.
  */
 export async function markInvoicePaid(
   invoiceId: string,
@@ -225,8 +227,14 @@ export async function markInvoicePaid(
   if (count === 0) return false;
 
   await prisma.booking.updateMany({
-    where: { id: invoice.bookingId, column: 'invoiced' },
-    data: { column: 'paid', columnChangedAt: new Date(), paidAt: new Date() },
+    where: { id: invoice.bookingId, column: { not: 'paid' } },
+    data: {
+      column: 'paid',
+      columnChangedAt: new Date(),
+      paidAt: new Date(),
+      waitingReason: null,
+      waitingUntil: null,
+    },
   });
   return true;
 }

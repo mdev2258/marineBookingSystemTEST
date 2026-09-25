@@ -5,7 +5,17 @@ import { AdminShell } from '@/components/admin/shell';
 import { Plate } from '@/components/ui/plate';
 import { formatPence } from '@/lib/money';
 import { JOB_COLUMN_LABEL, WAITING_REASON_LABEL, type JobColumn, type WaitingReason } from '@/lib/enums';
-import { describeEquipment, isCompleted, loadBoatById, workDate } from '@/lib/boat';
+import {
+  describeEquipment,
+  isCompleted,
+  isRigEquipment,
+  isRigJob,
+  loadBoatById,
+  workDate,
+} from '@/lib/boat';
+import { setBoatOwner } from '@/app/admin/board/actions';
+import { regenerateOwnerLink } from '@/app/admin/boat-link-actions';
+import { OwnerFields } from '@/app/admin/board/[id]/sort/owner-fields';
 import { formatLondonDateShort, todayInLondon } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
@@ -22,6 +32,7 @@ export const metadata: Metadata = { title: 'Boat — Harbourside Marine Services
  */
 export default async function BoatPage(props: PageProps<'/admin/boats/[id]'>) {
   const { id } = await props.params;
+  const params = await props.searchParams;
   const boat = await loadBoatById(id);
   if (!boat) notFound();
 
@@ -36,6 +47,8 @@ export default async function BoatPage(props: PageProps<'/admin/boats/[id]'>) {
   ]
     .filter(Boolean)
     .join(' · ');
+  // A motor boat has no rig, and an empty rig record is worse than none.
+  const hasRig = boat.equipment.some(isRigEquipment) || boat.bookings.some(isRigJob);
 
   return (
     <AdminShell>
@@ -56,7 +69,20 @@ export default async function BoatPage(props: PageProps<'/admin/boats/[id]'>) {
             </a>
           </p>
         ) : (
-          <p className="mt-3 text-[14px] muted">No owner on file yet.</p>
+          <form id="owner" action={setBoatOwner.bind(null, boat.id)} className="mt-4 max-w-lg space-y-3 border border-divider p-3">
+            <p className="text-[14px] muted">
+              No owner on file yet, so nothing about this boat can be emailed.
+            </p>
+            <OwnerFields error={params.error === 'owner'} note="Estimates, extra work and the owner's boat link go to this email." />
+            <button type="submit" className="k min-h-12 border border-ink px-4 hover:bg-neutral-200">
+              Add the owner
+            </button>
+          </form>
+        )}
+        {params.owner === '1' && (
+          <p role="status" className="mt-3 border border-divider bg-neutral-100 p-3 text-[13.5px]">
+            Owner added. Their jobs on this boat will now email them.
+          </p>
         )}
       </div>
 
@@ -67,19 +93,31 @@ export default async function BoatPage(props: PageProps<'/admin/boats/[id]'>) {
         >
           Work record
         </Link>
-        <Link
-          href={`/admin/boats/${boat.id}/rig`}
-          className="k flex min-h-12 items-center border border-ink px-4 hover:bg-neutral-200"
-        >
-          Rig record
-        </Link>
-        {boat.ownerToken && (
+        {hasRig && (
           <Link
-            href={`/boat/${boat.ownerToken}`}
-            className="k flex min-h-12 items-center border border-divider px-4 hover:bg-neutral-200"
+            href={`/admin/boats/${boat.id}/rig`}
+            className="k flex min-h-12 items-center border border-ink px-4 hover:bg-neutral-200"
           >
-            What the owner sees
+            Rig record
           </Link>
+        )}
+        {boat.ownerToken && (
+          <>
+            <Link
+              href={`/boat/${boat.ownerToken}`}
+              className="k flex min-h-12 items-center border border-divider px-4 hover:bg-neutral-200"
+            >
+              What the owner sees
+            </Link>
+            <form action={regenerateOwnerLink.bind(null, boat.id)}>
+              <button
+                type="submit"
+                className="k flex min-h-12 items-center border border-divider px-4 hover:bg-neutral-200"
+              >
+                New owner link (old one stops working)
+              </button>
+            </form>
+          </>
         )}
       </div>
 

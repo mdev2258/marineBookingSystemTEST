@@ -18,19 +18,15 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import {
-  addMonths,
-  addYears,
-  monthsBetween,
-  todayInLondon,
-  yearsBetween,
-} from '../src/lib/time';
+import { addMonths, addYears, dueWording, monthsBetween, todayInLondon, yearsBetween } from '../src/lib/time';
 import { JOB_COLUMN, WAITING_REASON } from '../src/lib/enums';
 import { lineAmountPence, parseQty, totalsFor } from '../src/lib/estimates';
 import { buildTimeline } from '../src/lib/timeline';
-import { findDueWork } from '../src/lib/due-work';
+import { findDueWork, blocksNewAsk, dedupeKeyFor, reminderPeriod } from '../src/lib/due-work';
 import { invoiceChaseStage } from '../src/lib/reminders';
-import { poundsToPence } from '../src/lib/money';
+import { formatPenceShort, poundsToPence } from '../src/lib/money';
+import { invoiceLinesFor } from '../src/lib/invoices';
+import { isLondonDate } from '../src/lib/board';
 
 const prisma = new PrismaClient();
 
@@ -77,6 +73,13 @@ async function main() {
   check('decimal hours parse', parseQty('2.5'), 2.5);
   check('zero quantity is rejected', parseQty('0'), null);
   check('line total has no float drift', lineAmountPence(3, 333), 999);
+  // 1.15 * 5550 is 6382.4999... in floats; the right answer is 6382.5 -> 6383.
+  check('1.15 h at £55.50 is £63.83, not a penny low', lineAmountPence(1.15, 5550), 6383);
+  check('card money keeps its thousands comma', formatPenceShort(124000), '£1,240');
+  check('card money keeps pence when there are some', formatPenceShort(123550), '£1,235.50');
+  check('a real date is a LondonDate', isLondonDate('2028-02-29'), true);
+  check('31 February is refused, not crashed on', isLondonDate('2026-02-31'), false);
+  check('a two-digit year is refused', isLondonDate('0099-01-01'), false);
   const tl = buildTimeline({
     createdAt: new Date('2026-09-01T09:00:00Z'),
     estimates: [{ status: 'accepted', totalPence: 24500, sentAt: new Date('2026-09-02T10:00:00Z'), decidedAt: new Date('2026-09-03T08:15:00Z'), decidedVia: 'phone', decisionNote: 'Rang back' }],
@@ -100,6 +103,68 @@ async function main() {
     JSON.stringify(totalsFor([{ amountPence: 10000, vatRateBps: 2000 }, { amountPence: 5000, vatRateBps: 0 }], true)),
     JSON.stringify({ net: 15000, vat: 2000, gross: 17000 }),
   );
+
+  // --- VAT on the invoice: the issueInvoice path, pure ---------------------
+  // THE RULE: VAT follows registration when a price is SHOWN to the owner,
+  // and the invoice bills what was agreed. These drive invoiceLinesFor, the
+  // function issueInvoice builds its lines with.
+  {
+    const done = [
+      { kind: 'labour', description: 'Re-rig', qty: 2, unitPricePence: 5000, amountPence: 10000 },
+      { kind: 'parts', description: 'Added after the estimate', qty: 1, unitPricePence: 5000, amountPence: 5000 },
+    ];
+    const extra = [{ description: 'Seacock', estimatePence: 1000 }];
+    const bill = (vatRegistered: boolean, agreed: Parameters<typeof invoiceLinesFor>[0]['agreed']) => {
+      const lines = invoiceLinesFor({ vatRegistered, doneLines: done, agreed, approvedVariations: extra });
+      return JSON.stringify({ rates: lines.map((l) => l.vatRateBps), totals: totalsFor(lines, vatRegistered) });
+    };
+    check(
+      'VAT: unregistered bills no VAT at all',
+      bill(false, null),
+      JSON.stringify({ rates: [0, 0, 0], totals: { net: 16000, vat: null, gross: 16000 } }),
+    );
+    check(
+      'VAT: registered, never estimated -> 20% on everything (a stored 0 on a working line is not zero-rating)',
+      bill(true, null),
+      JSON.stringify({ rates: [2000, 2000, 2000], totals: { net: 16000, vat: 3200, gross: 19200 } }),
+    );
+    check(
+      'VAT: estimated before registering -> that line billed as agreed, the rest at 20%',
+      bill(true, { vatPence: 0, lines: [{ description: 'Re-rig', vatRateBps: 0 }] }),
+      JSON.stringify({ rates: [0, 2000, 2000], totals: { net: 16000, vat: 1200, gross: 17200 } }),
+    );
+    check(
+      'VAT: old estimate with no frozen lines -> its VAT total decides',
+      bill(true, { vatPence: 0, lines: [] }),
+      JSON.stringify({ rates: [0, 0, 2000], totals: { net: 16000, vat: 200, gross: 16200 } }),
+    );
+    check(
+      'labour prints "hrs": invoice lines keep their kind, variations have none',
+      JSON.stringify(invoiceLinesFor({ vatRegistered: false, doneLines: done, agreed: null, approvedVariations: extra }).map((l) => l.kind)),
+      JSON.stringify(['labour', 'parts', null]),
+    );
+  }
+
+  // --- reminders: seasonal = once per year; others = 11 months from the answer
+  {
+    const feb = { kind: 'commission', status: 'booked', dueOn: '2027-02-03', closedAt: new Date('2027-04-10T11:00:00Z'), createdAt: new Date('2027-02-03T17:00:00Z') };
+    check('seasonal answered 10 Apr 2027 still asks Feb 2028', blocksNewAsk(feb, '2028-02-01'), false);
+    check('seasonal: not asked twice in the same year', blocksNewAsk(feb, '2027-02-20'), true);
+    check('still-sent reminder blocks whatever the year', blocksNewAsk({ ...feb, status: 'sent' }, '2028-02-01'), true);
+    const svc = { kind: 'service_due', status: 'dismissed', dueOn: '2027-01-05', closedAt: new Date('2027-04-10T11:00:00Z'), createdAt: new Date('2027-01-05T17:00:00Z') };
+    check('non-seasonal quiet 11 months from the answer', blocksNewAsk(svc, '2028-02-01'), true);
+    check('non-seasonal asks again after that', blocksNewAsk(svc, '2028-03-11'), false);
+    check('no closedAt falls back to createdAt', blocksNewAsk({ ...svc, closedAt: null }, '2027-12-06'), false);
+  }
+  check('seasonal period is the year', reminderPeriod('winterise', '2026-09-24'), '2026');
+  check('dedupeKey seasonal', dedupeKeyFor({ vesselId: 'v1', kind: 'antifoul', equipmentId: null, dueOn: '2027-01-02' }), 'v1|antifoul||2027');
+  check('dedupeKey non-seasonal', dedupeKeyFor({ vesselId: 'v1', kind: 'service_due', equipmentId: 'e9', dueOn: '2027-01-02' }), 'v1|service_due|e9|2027-01');
+  check('chase wording: today', dueWording('2026-09-23', '2026-09-23'), 'is due today');
+  check('chase wording: yesterday', dueWording('2026-09-22', '2026-09-23'), 'was due yesterday');
+  check('chase wording: days late', dueWording('2026-09-18', '2026-09-23'), 'was due 5 days ago');
+  check('no due email after the overdue one', invoiceChaseStage({ dueOn: '2026-09-20', dueReminderSentAt: null, overdueReminderSentAt: new Date() }, '2026-09-23'), null);
+  check('monthsBetween agrees with addMonths at month ends', monthsBetween('2026-03-31', '2027-04-30'), 13);
+  check('monthsBetween: 31 Jan to 28 Feb is a month', monthsBetween('2026-01-31', '2026-02-28'), 1);
 
   // --- invoice chasing: the stage rule, pure ---------------------------------
   {
@@ -230,6 +295,20 @@ async function main() {
     estimateSentCards.filter((c) => c.estimates.length === 0).length,
     0,
   );
+  // Same lie in Waiting: "owner deciding" with nothing for them to decide on.
+  check(
+    'every card waiting on an owner decision has an estimate out',
+    await prisma.booking.count({
+      where: { column: 'waiting', waitingReason: 'owner_decision', estimates: { none: { status: 'sent' } } },
+    }),
+    0,
+  );
+  check(
+    'every sent or accepted estimate has its lines frozen',
+    await prisma.estimate.count({ where: { status: { in: ['sent', 'accepted'] }, lines: { none: {} } } }),
+    0,
+  );
+  check('the business has an address for its invoices', Boolean(op?.address), true);
 
   // A sent estimate with no token is one the owner cannot answer.
   check(
@@ -442,17 +521,20 @@ async function main() {
   // estimate underneath the owner. This asserts the stored value still agrees
   // with its own inputs.
   const lines = await prisma.quoteLineItem.findMany();
-  const drifted = lines.filter((l) => l.amountPence !== Math.round(l.qty * l.unitPricePence));
+  const drifted = lines.filter((l) => l.amountPence !== lineAmountPence(l.qty, l.unitPricePence));
   check('no line total has drifted from qty x unit price', drifted.length, 0);
 
-  // The owner's estimate page lists the job's lines under the SENT total. If
-  // they disagree, the owner is looking at a sum that does not add up.
+  // The owner's estimate page lists the estimate's frozen lines (or, for an
+  // old estimate, the job's) under the SENT total. If they disagree, the owner
+  // is looking at a sum that does not add up.
   const sentEstimates = await prisma.estimate.findMany({
     where: { status: 'sent' },
-    select: { totalPence: true, booking: { select: { title: true, lineItems: true } } },
+    select: { totalPence: true, lines: true, booking: { select: { title: true, lineItems: true } } },
   });
   const unsummed = sentEstimates.filter(
-    (e) => totalsFor(e.booking.lineItems, op?.vatRegistered ?? false).gross !== e.totalPence,
+    (e) =>
+      totalsFor(e.lines.length ? e.lines : e.booking.lineItems, op?.vatRegistered ?? false).gross !==
+      e.totalPence,
   );
   check(
     `every sent estimate equals the sum of its lines${unsummed.length ? ` (${unsummed.map((e) => e.booking.title).join('; ')})` : ''}`,

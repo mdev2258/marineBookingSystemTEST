@@ -64,8 +64,8 @@ export function unpaidPence(card: { invoices: { totalPence: number }[] }): numbe
  * Positions are sparse (100, 200, 300) so a card can later be dropped between
  * two others without renumbering the whole column.
  *
- * PASS `tx` WHEN CALLING FROM INSIDE A TRANSACTION. DATABASE_URL carries
- * `connection_limit=1` for pgbouncer, so a transaction holds the only
+ * PASS `tx` WHEN CALLING FROM INSIDE A TRANSACTION. DATABASE_URL carries a
+ * small `connection_limit` for pgbouncer, so a transaction can hold the last
  * connection in the pool. A query on the global client from inside it then
  * waits for a connection the transaction will never give back -- a
  * deterministic deadlock that surfaces five seconds later as P2028
@@ -82,6 +82,68 @@ export async function nextPosition(
     select: { position: true },
   });
   return (last?.position ?? 0) + 100;
+}
+
+/**
+ * A value that came in on a request and is about to reach a Prisma WHERE.
+ * `undefined` (or an object) there does not fail -- Prisma drops the filter
+ * and the write matches every row. Bound action arguments come from the
+ * client, so every action checks its ids with this first.
+ */
+export function isId(x: unknown): x is string {
+  return typeof x === 'string' && x.length > 0 && x.length <= 64;
+}
+
+/**
+ * A real calendar day as "yyyy-MM-dd", not just the shape: 2026-02-31 passes
+ * the regex, is stored, and then throws in every formatter that renders it --
+ * which takes the board down for everyone. Round-trips through Date.UTC, so
+ * it is refused unless the date names itself.
+ */
+// ponytail: belongs in lib/time.ts beside LondonDate; lives here because that file is someone else's this round.
+export function isLondonDate(x: unknown): x is LondonDate {
+  if (typeof x !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(x)) return false;
+  const [y, m, d] = x.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+}
+
+/** Columns that are claims about paperwork, and what a job needs to be in them. */
+export async function paperworkAllows(
+  bookingId: string,
+  column: string,
+  db: Prisma.TransactionClient = prisma,
+): Promise<boolean> {
+  if (column === 'estimate_sent') {
+    return (await db.estimate.count({ where: { bookingId, status: 'sent' } })) > 0;
+  }
+  if (column === 'invoiced') {
+    return (await db.invoice.count({ where: { bookingId, status: 'sent' } })) > 0;
+  }
+  return true;
+}
+
+/**
+ * Nothing is out with the owner any more -- the estimate was withdrawn by a
+ * price edit, or declined. A card left in Estimate sent would say "waiting for
+ * you" with nothing to answer, so it goes back to Enquiry: the job still
+ * exists and still needs a price the owner agrees to, which is exactly what
+ * Enquiry means. Not Jotted -- the job was sorted enough to price, and
+ * nothing remembers which column it came from. Only a card IN Estimate sent
+ * moves; one the trade put anywhere else stays put.
+ */
+export async function releaseEstimateSentCard(
+  bookingId: string,
+  db: Prisma.TransactionClient = prisma,
+): Promise<void> {
+  await db.booking.updateMany({
+    where: { id: bookingId, column: 'estimate_sent', estimates: { none: { status: 'sent' } } },
+    data: {
+      column: 'enquiry',
+      columnChangedAt: new Date(),
+      position: await nextPosition('enquiry', db),
+    },
+  });
 }
 
 /**

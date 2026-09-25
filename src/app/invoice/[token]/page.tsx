@@ -6,11 +6,11 @@ import { Plate } from '@/components/ui/plate';
 import { formatPence } from '@/lib/money';
 import { startInvoiceCheckout } from '@/lib/payments';
 import { formatLondonDateLong } from '@/lib/time';
-import { daysOverdue } from '@/lib/invoices';
+import { daysOverdue, invoiceSeller } from '@/lib/invoices';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Invoice' };
+export const metadata: Metadata = { title: 'Invoice — Harbourside Marine Services' };
 
 /**
  * The owner's copy of an invoice.
@@ -32,13 +32,20 @@ export default async function OwnerInvoicePage(props: PageProps<'/invoice/[token
     include: {
       operator: true,
       lines: { orderBy: { sortOrder: 'asc' } },
-      booking: { include: { vessel: { select: { name: true } } } },
+      booking: {
+        include: { vessel: { select: { name: true } }, customer: { select: { name: true } } },
+      },
     },
   });
   if (!invoice) notFound();
 
   const business = invoice.operator;
-  const showVat = business.vatRegistered && invoice.vatPence > 0;
+  // Who it is from, AS ISSUED: changing the bank details later must not
+  // rewrite an invoice already sent. Old invoices fall back to the live row.
+  const seller = invoiceSeller(invoice, business);
+  const customerName = invoice.customerName ?? invoice.booking.customer?.name ?? null;
+  // VAT is on the invoice only if it was charged at issue; never as a zero.
+  const showVat = invoice.vatPence > 0;
   const card = invoice.status === 'sent' ? await startInvoiceCheckout(invoice.id) : null;
   const late = invoice.status === 'sent' ? daysOverdue(invoice) : 0;
 
@@ -48,6 +55,16 @@ export default async function OwnerInvoicePage(props: PageProps<'/invoice/[token
       <h1 className="mt-2 font-condensed text-3xl font-semibold tracking-tight">
         {invoice.booking.vessel?.name ?? 'Your boat'}
       </h1>
+      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[14px]">
+        <dt className="muted">Issued</dt>
+        <dd>{formatLondonDateLong(invoice.issuedOn)}</dd>
+        {customerName && (
+          <>
+            <dt className="muted">To</dt>
+            <dd>{customerName}</dd>
+          </>
+        )}
+      </dl>
 
       {invoice.status === 'paid' && (
         <p className="mt-4 border border-accent-700 bg-accent-100 p-3 text-[15px] font-semibold">
@@ -66,7 +83,12 @@ export default async function OwnerInvoicePage(props: PageProps<'/invoice/[token
             <li key={l.id} className="flex justify-between gap-4 text-[14px]">
               <span>
                 {l.description}
-                {l.qty !== 1 && <span className="muted"> × {l.qty}</span>}
+                {l.qty !== 1 && (
+                  <span className="muted">
+                    {' '}× {l.qty}
+                    {l.kind === 'labour' ? ' hrs' : ''}
+                  </span>
+                )}
               </span>
               <span className="numeric shrink-0">{formatPence(l.amountPence)}</span>
             </li>
@@ -93,10 +115,10 @@ export default async function OwnerInvoicePage(props: PageProps<'/invoice/[token
               : `Due by ${formatLondonDateLong(invoice.dueOn)}.`}
           </p>
 
-          {business.bankDetailsText && (
+          {seller.bankDetailsText && (
             <div className="mt-4 border-l-2 border-accent-700 bg-neutral-100 p-3 text-[14px]">
               <p className="k">Pay by bank transfer</p>
-              <p className="mt-1">{business.bankDetailsText}</p>
+              <p className="mt-1">{seller.bankDetailsText}</p>
               <p className="mt-1">
                 Reference: <span className="ref">{invoice.number}</span>
               </p>
@@ -114,11 +136,15 @@ export default async function OwnerInvoicePage(props: PageProps<'/invoice/[token
         </>
       )}
 
-      <p className="mt-8 text-[13px] muted">
-        {business.name}
-        {business.phone ? ` · ${business.phone}` : ''} · {business.contactEmail}
-        {business.vatNumber && business.vatRegistered ? ` · VAT ${business.vatNumber}` : ''}
-      </p>
+      <div className="mt-8 text-[13px] muted">
+        <p>{seller.name}</p>
+        {seller.address && <p className="whitespace-pre-line">{seller.address}</p>}
+        <p>
+          {seller.phone ? `${seller.phone} · ` : ''}
+          {seller.email}
+          {seller.vatNumber ? ` · VAT ${seller.vatNumber}` : ''}
+        </p>
+      </div>
     </PublicShell>
   );
 }

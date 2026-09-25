@@ -93,6 +93,10 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
   const column = job.column as JobColumn;
   const inColumnFor = daysBetween(londonDateString(job.columnChangedAt), today);
   const isJot = column === 'jotted';
+  // Invoiced and paid are one-way (moveJob refuses both), so the page offers
+  // no moves, no hold and no new extra work once the job is billed.
+  const locked = job.column === 'invoiced' || job.column === 'paid';
+  const noOwner = !job.customer;
   const missingReason = params.error === 'reason';
   const badVariation = params.error === 'variation';
 
@@ -118,6 +122,7 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
     billableVariations.reduce((n, v) => n + v.estimatePence, 0);
   const unticked = job.lineItems.filter((l) => !l.done).length;
   const liveInvoice = job.invoices.find((i) => i.status === 'sent' || i.status === 'paid');
+  const sentInvoice = job.invoices.find((i) => i.status === 'sent');
   const voided = job.invoices.filter((i) => i.status === 'void');
   const showInvoice =
     job.column === 'done_to_invoice' ||
@@ -161,9 +166,15 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
           )}
         </h1>
         <p className="mt-1 text-[15px]">{cardTitle(job)}</p>
+        {!locked && (
+          <a href="#move-to" className="k underline">
+            Move to…
+          </a>
+        )}
 
         <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-          <span className="k muted">{JOB_COLUMN_LABEL[column]}</span>
+          {/* 'paid' is not a board column, so it has no board label. */}
+          <span className="k muted">{job.column === 'paid' ? 'Paid' : JOB_COLUMN_LABEL[column]}</span>
           <span className="k muted">
             {inColumnFor <= 0 ? 'today' : `${inColumnFor} day${inColumnFor === 1 ? '' : 's'}`}
           </span>
@@ -176,6 +187,28 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
         <p className="whitespace-pre-wrap border-l-2 border-accent-700 bg-neutral-100 p-3 text-[14px] leading-snug">
           {job.requestNotes}
         </p>
+      )}
+
+      {/* What just happened, and whether the owner actually heard about it.
+          "none" is a job with no owner email: saying "sent" there is the
+          screen telling the trade the opposite of what happened. */}
+      {(
+        [
+          ['sent', params.sent],
+          ['raised', params.raised],
+        ] as const
+      ).map(([key, flag]) =>
+        flag === '1' || flag === 'none' || flag === 'failed' ? (
+          <p key={key} role="status" className="mt-4 border border-divider bg-neutral-100 p-3 text-[13.5px]">
+            {flag === '1'
+              ? key === 'sent'
+                ? 'Estimate emailed to the owner.'
+                : 'Extra work emailed to the owner.'
+              : flag === 'none'
+                ? 'No owner email — nothing sent. Tell them yourself, and record their answer here.'
+                : 'The email did not go. Ring them, and record their answer here.'}
+          </p>
+        ) : null,
       )}
 
       {job.customer && (
@@ -205,7 +238,9 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
           <div className="mt-3">
             <p className="text-[15px]">
               <span className="numeric text-xl">{formatPence(liveEstimate.totalPence)}</span>{' '}
-              <span className="muted">sent, waiting on the owner</span>
+              <span className="muted">
+                {noOwner ? 'No owner email — nothing sent' : 'sent, waiting on the owner'}
+              </span>
             </p>
 
             {/* The owner may well answer by ringing. Recording that here is
@@ -286,7 +321,7 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
 
         {awaiting.map((v) => (
           <Plate key={v.id} className="mt-3 bg-accent-100 p-3">
-            <p className="k">Waiting on the owner</p>
+            <p className="k">{noOwner ? 'No owner email — nothing sent' : 'Waiting on the owner'}</p>
             <p className="mt-1 text-[15px] font-semibold">{v.description}</p>
             {v.reason && <p className="mt-1 text-[13.5px]">{v.reason}</p>}
             <p className="numeric mt-1 text-[16px]">{formatPence(v.estimatePence)}</p>
@@ -343,17 +378,26 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
           </p>
         ))}
 
-        {/* Three fields, typed one-handed with the thing still in shot. */}
+        {params.error === 'variation_locked' && (
+          <p role="alert" className="mt-3 text-[13.5px] font-semibold text-accent-800">
+            This job is invoiced, so extra work can&rsquo;t be added to it.
+          </p>
+        )}
+
+        {/* Three fields, typed one-handed with the thing still in shot. Not
+            once the job is billed: it could never go on the invoice. */}
+        {!locked && (
         <form
           id="variation"
           action={raiseVariation.bind(null, job.id)}
           className="mt-4 border border-divider p-3"
         >
+          <input type="hidden" name="formNonce" value={crypto.randomUUID()} />
           <p className="k">Found something?</p>
 
           {badVariation && (
             <p id="variation-error" role="alert" className="mt-2 text-[13.5px] font-semibold text-accent-800">
-              Needs at least what it is and what it costs.
+              Needs what it is and what it costs, and the cost can&rsquo;t be £0.
             </p>
           )}
 
@@ -402,6 +446,7 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
             Ask the owner
           </button>
         </form>
+        )}
       </section>
 
       {isJot && (
@@ -421,6 +466,26 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
           {params.error === 'nothing_to_bill' && (
             <p id="invoice-error" role="alert" className="mt-3 border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
               Nothing is ticked off yet. Tick the lines that are done on the estimate first.
+            </p>
+          )}
+          {(params.error === 'already_invoiced' || params.error === 'not_ready') && (
+            <p role="alert" className="mt-3 border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
+              This job already has an invoice out. Void it first if it needs correcting.
+            </p>
+          )}
+          {params.error === 'too_big' && (
+            <p role="alert" className="mt-3 border border-accent-700 bg-accent-100 p-3 text-[13.5px]">
+              The total is too big to invoice. Check the lines for a typo.
+            </p>
+          )}
+          {typeof params.invoiced === 'string' && (
+            <p role="status" className="mt-3 border border-divider bg-neutral-100 p-3 text-[13.5px]">
+              {params.invoiced} issued.{' '}
+              {params.emailed === '1'
+                ? 'Emailed to the owner.'
+                : params.emailed === 'failed'
+                  ? 'The email did not go — send them the link another way.'
+                  : 'No owner email — nothing sent.'}
             </p>
           )}
 
@@ -508,6 +573,12 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
                   billed.
                 </p>
               )}
+              {awaiting.length > 0 && (
+                <p className="mt-1 text-[12.5px] muted">
+                  {awaiting.length} bit{awaiting.length === 1 ? '' : 's'} of extra work still
+                  unanswered. Issuing withdraws {awaiting.length === 1 ? 'it' : 'them'}.
+                </p>
+              )}
 
               <form action={issueInvoiceAction.bind(null, job.id)} className="mt-4">
                 <button
@@ -587,6 +658,7 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
         )}
 
         <form action={addPartOrder.bind(null, job.id)} className="mt-4 border border-divider p-3">
+          <input type="hidden" name="formNonce" value={crypto.randomUUID()} />
           <p className="k">Order a part</p>
           {params.error === 'part' && (
             <p id="part-error" role="alert" className="mt-2 text-[13.5px] font-semibold text-accent-800">
@@ -648,9 +720,13 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
       <section id="visits" className="mt-8">
         <h2 className="k border-b border-divider pb-2">Going down to her</h2>
 
-        {params.postponed === '1' && (
-          <p className="mt-3 border border-divider bg-neutral-100 p-3 text-[13.5px]">
-            Owner emailed.
+        {(params.postponed === '1' || params.postponed === 'none' || params.postponed === 'failed') && (
+          <p role="status" className="mt-3 border border-divider bg-neutral-100 p-3 text-[13.5px]">
+            {params.postponed === '1'
+              ? 'Owner emailed.'
+              : params.postponed === 'none'
+                ? 'No owner email — nothing sent. Let them know yourself.'
+                : 'The email did not go. Ring them.'}
           </p>
         )}
 
@@ -773,6 +849,7 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
           </div>
         ) : (
           <form action={planVisit.bind(null, job.id)} className="mt-4 border border-divider p-3">
+            <input type="hidden" name="formNonce" value={crypto.randomUUID()} />
             <p className="k">Put a day in</p>
             {params.error === 'visit' && (
               <p id="visit-error" role="alert" className="mt-2 text-[13.5px] font-semibold text-accent-800">
@@ -827,7 +904,22 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
         )}
       </section>
 
-      <h2 className="k mt-8 border-b border-divider pb-2">Move to</h2>
+      {locked ? (
+        <p className="mt-8 border-t border-divider pt-3 text-[13.5px] muted">
+          {job.column === 'paid'
+            ? 'Paid. This job is finished and off the board.'
+            : 'Invoiced. It leaves this column when it is paid, or if the invoice is voided.'}
+        </p>
+      ) : (
+      <>
+      {params.error === 'locked' && (
+        <p role="alert" className="mt-8 text-[13.5px] font-semibold text-accent-800">
+          That job is invoiced or paid, so it can&rsquo;t be moved.
+        </p>
+      )}
+      <h2 id="move-to" tabIndex={-1} className="k mt-8 border-b border-divider pb-2">
+        Move to
+      </h2>
       <div className="mt-4 flex flex-wrap gap-2">
         {/* Estimate sent and Invoiced are reached by sending the document, not
             by a button: a card there with nothing behind it is a lie. */}
@@ -837,7 +929,7 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
             c !== 'waiting' &&
             c !== 'jotted' &&
             (c !== 'estimate_sent' || liveEstimate) &&
-            (c !== 'invoiced' || liveInvoice),
+            (c !== 'invoiced' || sentInvoice),
         ).map((c) => (
           <form key={c} action={moveJob.bind(null, job.id)}>
             <input type="hidden" name="column" value={c} />
@@ -923,6 +1015,8 @@ export default async function JobPage(props: PageProps<'/admin/board/[id]'>) {
           {column === 'waiting' ? 'Update the hold' : 'Move to Waiting'}
         </button>
       </form>
+      </>
+      )}
 
       {/* ---- Timeline ---- */}
       <section className="mt-10 pb-10">

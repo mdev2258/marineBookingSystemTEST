@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
-import { bookAcceptedEstimate } from '@/lib/board';
+import { bookAcceptedEstimate, releaseEstimateSentCard } from '@/lib/board';
 import { decisionCutoff } from '@/app/estimate/[token]/expiry';
 
 /**
@@ -48,6 +48,7 @@ export async function decideEstimate(token: string, formData: FormData): Promise
 
     if (count === 1) {
       if (accepted) await bookAcceptedEstimate(estimate.bookingId, estimate.totalPence);
+      else await releaseEstimateSentCard(estimate.bookingId);
       // The board is the trade's screen; it must reflect this before they next
       // look at it, which may be seconds from now on a different phone.
       revalidatePath('/admin/board');

@@ -6,7 +6,7 @@ import { PublicShell } from '@/components/public-shell';
 import { Plate } from '@/components/ui/plate';
 import { formatPence } from '@/lib/money';
 import { JOB_COLUMN_OWNER_LABEL, type JobColumn, type WaitingReason } from '@/lib/enums';
-import { isCompleted, loadBoatByToken, workDate } from '@/lib/boat';
+import { isCompleted, loadBoatByToken, workDate, workDoneItems } from '@/lib/boat';
 import { formatLondonDateShort, todayInLondon } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
@@ -149,13 +149,11 @@ export default async function OwnerBoatPage(props: PageProps<'/boat/[token]'>) {
                   <span className="k muted">{formatLondonDateShort(workDate(job))}</span>
                 </div>
                 <ul className="mt-1 space-y-0.5">
-                  {job.lineItems
-                    .filter((l) => l.done)
-                    .map((l) => (
-                      <li key={l.id} className="text-[13.5px] muted">
-                        {l.description}
-                      </li>
-                    ))}
+                  {workDoneItems(job).map((d, i) => (
+                    <li key={i} className="text-[13.5px] muted">
+                      {d}
+                    </li>
+                  ))}
                 </ul>
               </li>
             ))}

@@ -1,7 +1,8 @@
 import { prisma } from '@/lib/prisma';
 import { generateRebookToken } from '@/lib/reference';
 import { nextPosition } from '@/lib/board';
-import { DEFAULT_VAT_BPS, lineAmountPence, totalsFor } from '@/lib/estimates';
+import { currentVatBps, DEFAULT_VAT_BPS, totalsFor } from '@/lib/estimates';
+import { MAX_PENCE } from '@/lib/money';
 import { addDays, daysBetween, todayInLondon, type LondonDate } from '@/lib/time';
 
 /**
@@ -36,7 +37,111 @@ export function daysOutstanding(
 
 export type IssueResult =
   | { ok: true; invoiceId: string; number: string }
-  | { ok: false; reason: 'not_ready' | 'nothing_to_bill' };
+  | { ok: false; reason: 'not_ready' | 'nothing_to_bill' | 'already_invoiced' | 'too_big' };
+
+export type InvoiceLineDraft = {
+  kind: string | null;
+  description: string;
+  qty: number;
+  unitPricePence: number;
+  amountPence: number;
+  vatRateBps: number;
+};
+
+/**
+ * What an invoice bills, and at what VAT rate. Pure, so the rule is checked
+ * (scripts/check-seed.ts) rather than trusted.
+ *
+ * The rule (estimates.ts > currentVatBps): the invoice bills exactly what was
+ * AGREED. A done line that was on the estimate the owner was shown carries the
+ * rate frozen on that EstimateLine. A line never estimated -- added after, or
+ * on a job that was never estimated -- takes today's registration, because
+ * today is the first time the owner sees its price.
+ *
+ * An old estimate with no EstimateLine rows only has its VAT total to go on:
+ * if it carried VAT, it was sent while registered.
+ *
+ * A business that is not registered cannot charge VAT, whatever was agreed.
+ */
+// ponytail: variations take registration NOW, not "at raise" -- exact until the business registers mid-job; a Variation.vatRateBps column would freeze it.
+export function invoiceLinesFor(input: {
+  vatRegistered: boolean;
+  doneLines: { kind: string; description: string; qty: number; unitPricePence: number; amountPence: number }[];
+  agreed: { vatPence: number; lines: { description: string; vatRateBps: number }[] } | null;
+  approvedVariations: { description: string; estimatePence: number }[];
+}): InvoiceLineDraft[] {
+  const now = currentVatBps(input.vatRegistered);
+  const rateFor = (description: string): number => {
+    if (!input.vatRegistered || !input.agreed) return now;
+    if (input.agreed.lines.length === 0) return input.agreed.vatPence > 0 ? DEFAULT_VAT_BPS : 0;
+    return input.agreed.lines.find((l) => l.description === description)?.vatRateBps ?? now;
+  };
+
+  return [
+    ...input.doneLines.map((l) => ({
+      kind: l.kind,
+      description: l.description,
+      qty: l.qty,
+      unitPricePence: l.unitPricePence,
+      amountPence: l.amountPence,
+      vatRateBps: rateFor(l.description),
+    })),
+    ...input.approvedVariations.map((v) => ({
+      kind: null,
+      description: `${v.description} (agreed extra work)`,
+      qty: 1,
+      unitPricePence: v.estimatePence,
+      amountPence: v.estimatePence,
+      vatRateBps: now,
+    })),
+  ];
+}
+
+/** Who the invoice is from, as printed. Snapshotted onto Invoice.sellerText at issue. */
+export type Seller = {
+  name: string;
+  address: string | null;
+  phone: string | null;
+  email: string;
+  vatNumber: string | null;
+  bankDetailsText: string | null;
+};
+
+type SellerSource = {
+  name: string;
+  address: string | null;
+  phone: string | null;
+  contactEmail: string;
+  vatRegistered: boolean;
+  vatNumber: string | null;
+  bankDetailsText: string | null;
+};
+
+export function sellerFrom(op: SellerSource): Seller {
+  return {
+    name: op.name,
+    address: op.address,
+    phone: op.phone,
+    email: op.contactEmail,
+    vatNumber: op.vatRegistered ? op.vatNumber : null,
+    bankDetailsText: op.bankDetailsText,
+  };
+}
+
+/**
+ * The seller as they were when this invoice was issued. Invoices issued before
+ * the snapshot existed fall back to the business as it is now.
+ */
+export function invoiceSeller(invoice: { sellerText: string | null }, live: SellerSource): Seller {
+  if (invoice.sellerText) {
+    try {
+      return JSON.parse(invoice.sellerText) as Seller;
+    } catch {
+      // Unreadable snapshot: the live business is the best there is.
+    }
+  }
+  return sellerFrom(live);
+}
 
 /**
  * Issue an invoice for a finished job.
@@ -50,57 +155,67 @@ export type IssueResult =
  * which turns any mistake into a loud failure instead of a silent duplicate.
  *
  * RULE 2 -- THE LINES ARE A COPY. Done lines and approved variations are
- * snapshotted into InvoiceLine at the moment of issue. Editing the job
- * afterwards -- which happens, because lines are the trade's working list --
- * must not change what was billed.
+ * snapshotted into InvoiceLine at the moment of issue, and so are who it is
+ * from and to (sellerText, customerName). Editing the job or the business
+ * afterwards must not change what was billed.
+ *
+ * RULE 3 -- ONE LIVE INVOICE PER JOB. A job with a sent or paid invoice is
+ * never billed again; only a void frees it.
  *
  * Claim first, as everywhere else: the card is moved out of Done -- to
- * invoice with the column in the WHERE, and only if that matched one row does
- * anything else happen. A double-tap issues one invoice, not two numbers.
+ * invoice with the column AND "no sent or paid invoice" in the WHERE, and only
+ * if that matched one row does anything else happen. A double-tap issues one
+ * invoice, not two numbers.
  */
 export async function issueInvoice(jobId: string): Promise<IssueResult> {
-  const op = await prisma.operator.findFirst({ select: { id: true, vatRegistered: true } });
+  const op = await prisma.operator.findFirst();
   if (!op) throw new Error('No business row. Run `npm run seed`.');
 
   const job = await prisma.booking.findUnique({
     where: { id: jobId },
     include: {
+      customer: { select: { name: true } },
       lineItems: { where: { done: true }, orderBy: { sortOrder: 'asc' } },
       variations: { where: { status: 'approved' }, orderBy: { createdAt: 'asc' } },
+      invoices: { where: { status: { in: ['sent', 'paid'] } }, select: { id: true } },
+      // What the owner was shown: the accepted estimate, else the one still out.
+      estimates: {
+        where: { status: { in: ['accepted', 'sent'] } },
+        orderBy: { createdAt: 'desc' },
+        include: { lines: { select: { description: true, vatRateBps: true } } },
+      },
     },
   });
   if (!job) return { ok: false, reason: 'not_ready' };
+  if (job.invoices.length > 0) return { ok: false, reason: 'already_invoiced' };
 
-  const vatBps = op.vatRegistered ? DEFAULT_VAT_BPS : 0;
+  const agreed = job.estimates.find((e) => e.status === 'accepted') ?? job.estimates[0] ?? null;
 
   // What actually gets billed: work ticked off, plus extra work the owner said
   // yes to. A line nobody ticked is not billed; a variation nobody approved is
   // not billed -- that is the entire point of recording the approval.
-  const lines = [
-    ...job.lineItems.map((l) => ({
-      description: l.description,
-      qty: l.qty,
-      unitPricePence: l.unitPricePence,
-      amountPence: l.amountPence,
-      vatRateBps: op.vatRegistered ? l.vatRateBps || DEFAULT_VAT_BPS : 0,
-    })),
-    ...job.variations.map((v) => ({
-      description: `${v.description} (agreed extra work)`,
-      qty: 1,
-      unitPricePence: v.estimatePence,
-      amountPence: lineAmountPence(1, v.estimatePence),
-      vatRateBps: vatBps,
-    })),
-  ];
+  const lines = invoiceLinesFor({
+    vatRegistered: op.vatRegistered,
+    doneLines: job.lineItems,
+    agreed,
+    approvedVariations: job.variations,
+  });
   if (lines.length === 0) return { ok: false, reason: 'nothing_to_bill' };
 
   const totals = totalsFor(lines, op.vatRegistered);
+  // Postgres Int. Each line is capped on save; the SUM is not, and a sum past
+  // this is a 500 in the middle of issuing.
+  if (totals.gross > MAX_PENCE) return { ok: false, reason: 'too_big' };
   const issuedOn = todayInLondon();
 
   const result = await prisma.$transaction(async (tx) => {
     // Claim the card. Zero rows means it has already been invoiced.
     const claimed = await tx.booking.updateMany({
-      where: { id: jobId, column: 'done_to_invoice' },
+      where: {
+        id: jobId,
+        column: 'done_to_invoice',
+        invoices: { none: { status: { in: ['sent', 'paid'] } } },
+      },
       data: {
         column: 'invoiced',
         columnChangedAt: new Date(),
@@ -108,6 +223,15 @@ export async function issueInvoice(jobId: string): Promise<IssueResult> {
       },
     });
     if (claimed.count === 0) return null;
+
+    // Extra work still waiting on the owner can no longer be billed, so it is
+    // withdrawn with the issue: an owner approving it afterwards would be told
+    // it goes on an invoice that has already gone, and the nightly chase
+    // would keep asking.
+    await tx.variation.updateMany({
+      where: { bookingId: jobId, status: 'awaiting_owner' },
+      data: { status: 'withdrawn', decidedAt: new Date(), token: null },
+    });
 
     // Take the next number. Incremented, not read-then-written.
     const counter = await tx.operator.update({
@@ -128,6 +252,8 @@ export async function issueInvoice(jobId: string): Promise<IssueResult> {
         vatPence: totals.vat ?? 0,
         status: 'sent',
         token: generateRebookToken(),
+        sellerText: JSON.stringify(sellerFrom(op)),
+        customerName: job.customer?.name ?? null,
         lines: {
           create: lines.map((l, i) => ({ ...l, sortOrder: i })),
         },

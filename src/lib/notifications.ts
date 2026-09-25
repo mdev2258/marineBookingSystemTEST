@@ -2,11 +2,14 @@ import { prisma } from '@/lib/prisma';
 import { baseUrl, sendEmail, type SendEmailResult } from '@/lib/email';
 import { getBusiness } from '@/lib/business';
 import { formatPence } from '@/lib/money';
+import { workingTotals } from '@/lib/estimates';
 import {
+  dueWording,
   formatDateShort,
   formatDateTime,
   formatLondonDateLong,
   formatTimeRange,
+  todayInLondon,
   type LondonDate,
 } from '@/lib/time';
 import {
@@ -62,6 +65,20 @@ function table(rows: string[]): string {
 
 function button(href: string, label: string): string {
   return `<p style="margin:22px 0;"><a href="${href}" style="display:inline-block;background:#0b4f6c;color:#ffffff;text-decoration:none;padding:13px 22px;border-radius:8px;font-weight:600;font-size:15px;">${label}</a></p>`;
+}
+
+/**
+ * The owner's one link to their boat (Vessel.ownerToken). The marketing page
+ * promises every owner one; the estimate and variation emails are where they
+ * get it. Nothing when the boat has no link yet.
+ */
+function boatLink(vessel: { name: string; ownerToken: string | null }): { text: string; html: string } {
+  if (!vessel.ownerToken) return { text: '', html: '' };
+  const url = `${baseUrl()}/boat/${vessel.ownerToken}`;
+  return {
+    text: `\nEverything we're doing on ${vessel.name}, any time: ${url}\n`,
+    html: `<p style="font-size:14px;color:#334155;">Everything we're doing on ${esc(vessel.name)}, any time: <a href="${url}">your boat's page</a>.</p>`,
+  };
 }
 
 function note(text: string): string {
@@ -393,7 +410,7 @@ export async function sendContactNotification(input: {
   business?: string | null;
   message: string;
 }): Promise<SendEmailResult> {
-  const to = process.env.CONTACT_RECIPIENT_EMAIL?.trim() || 'hello@example.com';
+  const to = process.env.CONTACT_RECIPIENT_EMAIL?.trim() || 'hello@tidemark.example';
   const subject = `New enquiry from ${input.name}${input.business ? ` (${input.business})` : ''}`;
   const text = `Name:     ${input.name}
 Email:    ${input.email}
@@ -428,7 +445,10 @@ ${input.message}`;
 async function loadEstimate(estimateId: string) {
   const e = await prisma.estimate.findUnique({
     where: { id: estimateId },
-    include: { booking: { include: { customer: true, vessel: true, lineItems: { orderBy: { sortOrder: 'asc' } } } } },
+    include: {
+      lines: { orderBy: { sortOrder: 'asc' } },
+      booking: { include: { customer: true, vessel: true, lineItems: { orderBy: { sortOrder: 'asc' } } } },
+    },
   });
   if (!e || !e.booking.customer || !e.booking.vessel) return null;
   return { ...e, customer: e.booking.customer, vessel: e.booking.vessel };
@@ -446,16 +466,24 @@ export async function sendEstimateEmail(estimateId: string): Promise<SendEmailRe
   if (!e || !e.token) return null;
 
   const link = `${baseUrl()}/estimate/${e.token}`;
-  const lines = e.booking.lineItems;
+  // What was frozen at send; the job's working lines only for an estimate
+  // sent before EstimateLine existed.
+  const lines = e.lines.length > 0 ? e.lines : e.booking.lineItems;
+  const qty = (l: { qty: number; kind: string | null }) =>
+    l.qty !== 1 ? ` (${l.qty}${l.kind === 'labour' ? ' hrs' : ''})` : '';
+  // Same rule as the owner's estimate page: VAT is mentioned only when the
+  // estimate carries some, and never as a zero.
+  const vatLine = e.vatPence > 0 ? `includes ${formatPence(e.vatPence)} VAT` : '';
+  const boat = boatLink(e.vessel);
   const subject = `Estimate for ${e.vessel.name} — ${formatPence(e.totalPence)}`;
 
   const text = `Hi ${e.customer.name},
 
 Here is our estimate for the work on ${e.vessel.name}.
 
-${lines.map((l) => `  ${l.description}${l.qty !== 1 ? ` (${l.qty})` : ''}  ${formatPence(l.amountPence)}`).join('\n')}
+${lines.map((l) => `  ${l.description}${qty(l)}  ${formatPence(l.amountPence)}`).join('\n')}
 
-Estimate total: ${formatPence(e.totalPence)}
+Estimate total: ${formatPence(e.totalPence)}${vatLine ? ` (${vatLine})` : ''}
 ${e.notes ? `\n${e.notes}\n` : ''}
 This is an estimate, not a fixed price. It is based on what we can see so far,
 and we will always come back to you before doing anything that adds to it.
@@ -463,7 +491,7 @@ and we will always come back to you before doing anything that adds to it.
 Have a look and let us know: ${link}
 
 Or just ring us — we can mark it agreed at this end.
-
+${boat.text}
 ${e.booking.reference}`;
 
   return sendEmail({
@@ -473,12 +501,14 @@ ${e.booking.reference}`;
     text,
     html: await wrap(
       `Estimate for ${esc(e.vessel.name)}`,
-      `${table(lines.map((l) => row(esc(l.description), formatPence(l.amountPence))))}
+      `${table(lines.map((l) => row(esc(`${l.description}${qty(l)}`), formatPence(l.amountPence))))}
       <p style="font-size:17px;"><strong>Total: ${formatPence(e.totalPence)}</strong></p>
+      ${vatLine ? `<p style="font-size:14px;color:#334155;">${vatLine}</p>` : ''}
       ${e.notes ? note(e.notes) : ''}
       <p style="font-size:14px;color:#334155;">This is an <strong>estimate, not a fixed price</strong>. It is based on what we can see so far, and we will always come back to you before doing anything that adds to it.</p>
       ${button(link, 'Have a look')}
-      <p style="font-size:14px;color:#334155;">Or just ring us — we can mark it agreed at this end.</p>`,
+      <p style="font-size:14px;color:#334155;">Or just ring us — we can mark it agreed at this end.</p>
+      ${boat.html}`,
     ),
     bookingId: e.bookingId,
     customerId: e.customer.id,
@@ -511,9 +541,17 @@ export async function sendVariationEmail(
   if (!v || !v.token) return null;
 
   const link = `${baseUrl()}/variation/${v.token}`;
+  // VAT follows registration at the moment the price is shown (estimates.ts),
+  // and the invoice bills it that way -- so the owner is shown it here too.
+  const price = workingTotals([{ amountPence: v.estimatePence }], (await getBusiness())?.vatRegistered ?? false);
+  const cost =
+    price.vat == null
+      ? formatPence(price.gross)
+      : `${formatPence(price.gross)} (${formatPence(price.net)} + ${formatPence(price.vat)} VAT)`;
+  const boat = boatLink(v.vessel);
   const subject = isReminder
     ? `Still need your go-ahead — ${v.vessel.name}`
-    : `Extra work found on ${v.vessel.name} — ${formatPence(v.estimatePence)}`;
+    : `Extra work found on ${v.vessel.name} — ${formatPence(price.gross)}`;
 
   const text = `Hi ${v.customer.name},
 
@@ -521,12 +559,12 @@ ${isReminder ? 'Just a nudge — we are still waiting to hear back about this.' 
 
 ${v.description}
 ${v.reason ? `\nWhy: ${v.reason}\n` : ''}
-Estimated cost: ${formatPence(v.estimatePence)}
+Estimated cost: ${cost}
 
 Nothing happens until you say so. Yes or no here: ${link}
 
 Or ring us and we will note it down at this end.
-
+${boat.text}
 ${v.booking.reference}`;
 
   return sendEmail({
@@ -538,10 +576,11 @@ ${v.booking.reference}`;
       isReminder ? `Still need your go-ahead` : `We found something on ${esc(v.vessel.name)}`,
       `${note(v.description)}
       ${v.reason ? `<p style="font-size:15px;"><strong>Why:</strong> ${esc(v.reason)}</p>` : ''}
-      <p style="font-size:17px;"><strong>Estimated cost: ${formatPence(v.estimatePence)}</strong></p>
+      <p style="font-size:17px;"><strong>Estimated cost: ${cost}</strong></p>
       <p style="font-size:15px;"><strong>Nothing happens until you say so.</strong></p>
       ${button(link, 'Yes or no')}
-      <p style="font-size:14px;color:#334155;">Or ring us and we will note it down at this end.</p>`,
+      <p style="font-size:14px;color:#334155;">Or ring us and we will note it down at this end.</p>
+      ${boat.html}`,
     ),
     bookingId: v.bookingId,
     customerId: v.customer.id,
@@ -782,14 +821,12 @@ export async function sendInvoiceReminderEmail(
   if (!inv || !inv.token || inv.status !== 'sent') return null;
 
   const link = `${baseUrl()}/invoice/${inv.token}`;
-  const subject =
-    stage === 'due'
-      ? `Invoice ${inv.number} is due today`
-      : `Invoice ${inv.number} — a week past due`;
+  const when = dueWording(inv.dueOn, todayInLondon());
+  const subject = `Invoice ${inv.number} ${when}`;
   const opener =
     stage === 'due'
-      ? `Just a reminder that invoice ${inv.number} for ${inv.vessel.name} is due today.`
-      : `Invoice ${inv.number} for ${inv.vessel.name} is now a week past its due date. If it has already gone, thank you, and please ignore this.`;
+      ? `Just a reminder that invoice ${inv.number} for ${inv.vessel.name} ${when}.`
+      : `Invoice ${inv.number} for ${inv.vessel.name} ${when}. If it has already gone, thank you, and please ignore this.`;
 
   const text = `Hi ${inv.customer.name},
 

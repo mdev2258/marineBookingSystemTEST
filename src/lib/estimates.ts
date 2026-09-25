@@ -40,7 +40,10 @@ export function totalsFor(
  * owner by a later rounding change.
  */
 export function lineAmountPence(qty: number, unitPricePence: number): number {
-  return Math.round(qty * unitPricePence);
+  // Integer maths, rounded once. qty has at most two decimals (parseQty), so
+  // hundredths are exact; 1.15 * 5550 in floats is 6382.4999... and rounded
+  // a penny low.
+  return Math.round((Math.round(qty * 100) * unitPricePence) / 100);
 }
 
 /** Parse "2.5" / "2,5" / "" into a quantity. Blank means one. */
@@ -66,3 +69,21 @@ export type LineDraftInput = {
 
 /** The default VAT rate on a new line, in basis points. 20% UK standard. */
 export const DEFAULT_VAT_BPS = 2000;
+
+/**
+ * THE VAT RULE: VAT follows the business's registration at the moment a price
+ * is SHOWN to the owner -- an estimate sent, a variation raised -- and the
+ * invoice bills exactly what was agreed. So the rate for anything priced now
+ * comes from registration now. QuoteLineItem.vatRateBps is not read: a stored
+ * 0 on a working line is not evidence of zero-rating, it is usually a line
+ * saved before registering.
+ */
+export function currentVatBps(vatRegistered: boolean): number {
+  return vatRegistered ? DEFAULT_VAT_BPS : 0;
+}
+
+/** The job's working lines priced as if shown to the owner now. */
+export function workingTotals(lines: { amountPence: number }[], vatRegistered: boolean): Totals {
+  const bps = currentVatBps(vatRegistered);
+  return totalsFor(lines.map((l) => ({ amountPence: l.amountPence, vatRateBps: bps })), vatRegistered);
+}

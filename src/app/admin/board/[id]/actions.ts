@@ -2,13 +2,21 @@
 
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { requireAdmin } from '@/app/admin/actions';
 import { isDecidedVia, isPostponeReason, LINE_KIND, type LineKind } from '@/lib/enums';
 import { generateRebookToken } from '@/lib/reference';
-import { bookAcceptedEstimate, nextPosition } from '@/lib/board';
-import { DEFAULT_VAT_BPS, lineAmountPence, parseQty, totalsFor } from '@/lib/estimates';
-import { MAX_PENCE, poundsToPence } from '@/lib/money';
+import {
+  bookAcceptedEstimate,
+  isId,
+  isLondonDate,
+  nextPosition,
+  releaseEstimateSentCard,
+} from '@/lib/board';
+import { currentVatBps, lineAmountPence, parseQty, totalsFor, workingTotals } from '@/lib/estimates';
+import { formatPence, MAX_PENCE, poundsToPence } from '@/lib/money';
+import type { SendEmailResult } from '@/lib/email';
 import {
   sendEstimateEmail,
   sendInvoiceEmail,
@@ -29,19 +37,66 @@ function isLineKind(v: string): v is LineKind {
   return (LINE_KIND as readonly string[]).includes(v);
 }
 
+/** Columns a job never leaves by hand, and never gets new paperwork in. */
+const LOCKED_COLUMNS = ['invoiced', 'paid'];
+
+/**
+ * What the flash on the job page says about the email: sent, failed, or --
+ * the one that matters -- never sent because the job has no owner email.
+ * Saying "Owner emailed" when nothing went is the screen lying to the trade.
+ */
+function emailFlag(result: SendEmailResult | null): '1' | 'none' | 'failed' {
+  return !result ? 'none' : result.ok ? '1' : 'failed';
+}
+
+/**
+ * The hidden per-render nonce on the create forms (raise variation, order a
+ * part, plan a visit). It is written to a @unique column, so the same form
+ * submitted twice collides in the database instead of creating two rows and
+ * sending two emails. A missing or odd-looking one just means no guard.
+ */
+function readNonce(formData: FormData): string | null {
+  const v = formData.get('formNonce');
+  return typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v) ? v : null;
+}
+
+function isDuplicateNonce(e: unknown): boolean {
+  return (
+    e instanceof Prisma.PrismaClientKnownRequestError &&
+    e.code === 'P2002' &&
+    String(e.meta?.target ?? '').includes('formNonce')
+  );
+}
+
+/** A line as the trade typed it, so a refused save hands it back rather than losing it. */
+export type DraftRow = { kind: string; description: string; qty: string; unitPrice: string; done: boolean };
+export type LinesState = { error: string; rows: DraftRow[] } | null;
+
+/** Enough for any real job; a 2,000-line save held the DB connection for 31 s. */
+const MAX_LINES = 200;
+
 /**
  * Replace the job's working line list from the form.
  *
  * Lines live on the JOB, not on an Estimate: they are the list the trade ticks
- * off as work gets done. An Estimate snapshots their total at the moment it is
- * sent, which is why editing lines afterwards cannot change what was sent.
+ * off as work gets done. An Estimate copies them onto EstimateLine at the
+ * moment it is sent, which is why editing lines afterwards cannot change what
+ * was sent.
  *
  * Rows arrive as parallel arrays from the form. A row with no description is
  * dropped rather than rejected -- an empty last row is how people leave a
  * form, not an error worth stopping a save for.
+ *
+ * A refused save RETURNS what was typed (useActionState), and says which row:
+ * one bad price must not throw away twenty lines typed on a phone.
  */
-export async function saveLines(jobId: string, formData: FormData): Promise<void> {
+export async function saveLines(
+  jobId: string,
+  _prev: LinesState,
+  formData: FormData,
+): Promise<LinesState> {
   await requireAdmin();
+  if (!isId(jobId)) throw new Error('Bad request.');
   const op = await business();
 
   const kinds = formData.getAll('kind').map(String);
@@ -50,78 +105,84 @@ export async function saveLines(jobId: string, formData: FormData): Promise<void
   const prices = formData.getAll('unitPrice').map(String);
   const dones = new Set(formData.getAll('done').map(String));
 
+  const typed: DraftRow[] = descriptions
+    .map((description, i) => ({
+      kind: kinds[i] ?? 'labour',
+      description,
+      qty: qtys[i] ?? '',
+      unitPrice: prices[i] ?? '',
+      done: dones.has(String(i)),
+    }))
+    .filter((r) => r.description.trim());
+  const refuse = (error: string): LinesState => ({ error: `${error} Nothing was saved.`, rows: typed });
+
   const rows: {
     kind: string;
     description: string;
     qty: number;
     unitPricePence: number;
+    amountPence: number;
     vatRateBps: number;
     done: boolean;
     sortOrder: number;
   }[] = [];
 
-  for (let i = 0; i < descriptions.length; i++) {
-    const description = (descriptions[i] ?? '').trim();
-    if (!description) continue;
+  if (typed.length > MAX_LINES) {
+    return refuse(`That is ${typed.length} lines; the most one job takes is ${MAX_LINES}.`);
+  }
+
+  for (const [i, r] of typed.entries()) {
+    const description = r.description.trim();
+    const which = `Row ${i + 1} (“${description.length > 30 ? `${description.slice(0, 29)}…` : description}”)`;
 
     // Refused, not guessed: "1,20" silently becoming £0 is a wrong estimate.
     // A blank price is a line not priced yet, and stays £0 as before.
-    const qty = parseQty(qtys[i] ?? '');
-    const unitPricePence = (prices[i] ?? '').trim() ? poundsToPence(prices[i]!) : 0;
-    if (qty == null || unitPricePence == null || lineAmountPence(qty, unitPricePence) > MAX_PENCE) {
-      redirect(`/admin/board/${jobId}/estimate?error=line`);
+    const qty = parseQty(r.qty);
+    if (qty == null) return refuse(`${which}: the quantity couldn’t be read — use a number like 2.5.`);
+    const unitPricePence = r.unitPrice.trim() ? poundsToPence(r.unitPrice) : 0;
+    if (unitPricePence == null) {
+      return refuse(`${which}: the price couldn’t be read — use a number like 55 or 1,200.`);
     }
-    const kind = isLineKind(kinds[i] ?? '') ? kinds[i]! : 'labour';
+    const amountPence = lineAmountPence(qty, unitPricePence);
+    if (amountPence > MAX_PENCE) return refuse(`${which}: that line comes to more than ${formatPence(MAX_PENCE)}.`);
 
     rows.push({
-      kind,
+      kind: isLineKind(r.kind) ? r.kind : 'labour',
       description,
       qty,
       unitPricePence,
-      // A rate is stored even when the business is not registered, so that
-      // registering later does not require re-typing every line. It is simply
-      // never read while vatRegistered is false.
-      vatRateBps: op.vatRegistered ? DEFAULT_VAT_BPS : 0,
-      done: dones.has(String(i)),
+      amountPence,
+      // Stored for the record only. The rate that reaches an owner is decided
+      // when a price is shown to them -- see currentVatBps.
+      vatRateBps: currentVatBps(op.vatRegistered),
+      done: r.done,
       sortOrder: rows.length,
     });
   }
 
-  // The owner's estimate page lists these lines under the SENT total. If the
-  // edit changes the money, that estimate no longer matches its own lines, so
-  // it is superseded in the same transaction and the trade sends a new one.
-  const gross = totalsFor(
-    rows.map((r) => ({ amountPence: lineAmountPence(r.qty, r.unitPricePence), vatRateBps: r.vatRateBps })),
-    op.vatRegistered,
-  ).gross;
+  // Each line is capped above; the SUM is what overflows the Int column when
+  // it is sent or invoiced, so it is refused here, while the typing is still
+  // on screen.
+  const gross = workingTotals(rows, op.vatRegistered).gross;
+  if (gross > MAX_PENCE) return refuse(`The total comes to more than ${formatPence(MAX_PENCE)}.`);
 
-  // Replace wholesale inside one transaction: a half-written line list is a
-  // wrong total, and a wrong total is the thing an owner argues about.
+  // An estimate that is out was priced at its own total. If this edit changes
+  // the money, it is superseded in the same transaction and the trade sends a
+  // new one; the owner's copy (EstimateLine) is frozen either way.
   const [withdrawn] = await prisma.$transaction([
     prisma.estimate.updateMany({
       where: { bookingId: jobId, status: 'sent', totalPence: { not: gross } },
       data: { status: 'superseded', token: null },
     }),
     prisma.quoteLineItem.deleteMany({ where: { bookingId: jobId } }),
-    ...rows.map((r) =>
-      prisma.quoteLineItem.create({
-        data: {
-          bookingId: jobId,
-          kind: r.kind,
-          description: r.description,
-          qty: r.qty,
-          unitPricePence: r.unitPricePence,
-          amountPence: lineAmountPence(r.qty, r.unitPricePence),
-          vatRateBps: r.vatRateBps,
-          done: r.done,
-          sortOrder: r.sortOrder,
-        },
-      }),
-    ),
+    prisma.quoteLineItem.createMany({ data: rows.map((r) => ({ bookingId: jobId, ...r })) }),
   ]);
+  // Nothing out with the owner any more, so the card stops saying there is.
+  if (withdrawn.count) await releaseEstimateSentCard(jobId);
 
   revalidatePath(`/admin/board/${jobId}/estimate`);
   revalidatePath(`/admin/board/${jobId}`);
+  revalidatePath('/admin/board');
   redirect(`/admin/board/${jobId}/estimate?saved=${withdrawn.count ? 'withdrawn' : '1'}`);
 }
 
@@ -129,29 +190,61 @@ export async function saveLines(jobId: string, formData: FormData): Promise<void
  * Send the estimate.
  *
  * Re-estimating SUPERSEDES rather than edits, so what the owner agreed to is
- * still readable after the price changes. The previous sent estimate keeps its
- * own snapshotted total for ever.
+ * still readable after the price changes. The lines are copied onto
+ * EstimateLine with the VAT rate of this moment, so what the owner was shown
+ * is frozen -- and it is what the invoice later bills.
+ *
+ * CLAIMED: the form carries the quotedAt it was rendered with, and that value
+ * is in the WHERE of the first write. The first submit moves quotedAt on, so a
+ * double-submit or a stale second tab matches zero rows and sends nothing.
+ *
+ * The card moves only from a column that was waiting on a price -- Jotted,
+ * Enquiry, or Estimate sent itself. Re-pricing a job that is On it must not
+ * drag it back up the board.
  *
  * The email goes out AFTER the transaction commits. A rollback cannot unsend a
  * message, so nothing that reaches a customer happens inside one.
  */
 export async function sendEstimate(jobId: string, formData: FormData): Promise<void> {
   await requireAdmin();
+  if (!isId(jobId)) throw new Error('Bad request.');
   const op = await business();
 
   const notes = String(formData.get('notes') ?? '').trim().slice(0, 1000);
+  const rawSeen = formData.get('seen');
+  const seen = typeof rawSeen === 'string' && rawSeen ? new Date(rawSeen) : null;
+  if (seen && Number.isNaN(seen.getTime())) throw new Error('Bad request.');
 
   const job = await prisma.booking.findUnique({
     where: { id: jobId },
-    include: { lineItems: true, customer: { select: { id: true } } },
+    include: { lineItems: { orderBy: { sortOrder: 'asc' } } },
   });
   if (!job) redirect('/admin/board');
+  if (LOCKED_COLUMNS.includes(job.column)) redirect(`/admin/board/${jobId}/estimate?error=locked`);
   if (job.lineItems.length === 0) redirect(`/admin/board/${jobId}/estimate?error=empty`);
 
-  const totals = totalsFor(job.lineItems, op.vatRegistered);
+  const vatRateBps = currentVatBps(op.vatRegistered);
+  const lines = job.lineItems.map((l) => ({
+    kind: l.kind,
+    description: l.description,
+    qty: l.qty,
+    unitPricePence: l.unitPricePence,
+    amountPence: l.amountPence,
+    vatRateBps,
+    sortOrder: l.sortOrder,
+  }));
+  const totals = totalsFor(lines, op.vatRegistered);
+  if (totals.gross > MAX_PENCE) redirect(`/admin/board/${jobId}/estimate?error=total`);
   const token = generateRebookToken();
+  const now = new Date();
 
   const estimateId = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.booking.updateMany({
+      where: { id: jobId, quotedAt: seen, column: { notIn: LOCKED_COLUMNS } },
+      data: { quotedPence: totals.gross, quotedAt: now, quoteNotes: notes || null },
+    });
+    if (claimed.count === 0) return null;
+
     // Anything still out is now out of date.
     await tx.estimate.updateMany({
       where: { bookingId: jobId, status: 'sent' },
@@ -165,32 +258,34 @@ export async function sendEstimate(jobId: string, formData: FormData): Promise<v
         totalPence: totals.gross,
         vatPence: totals.vat ?? 0,
         notes: notes || null,
-        sentAt: new Date(),
+        sentAt: now,
         token,
+        lines: { create: lines },
       },
       select: { id: true },
     });
 
-    await tx.booking.update({
-      where: { id: jobId },
+    await tx.booking.updateMany({
+      where: { id: jobId, column: { in: ['jotted', 'enquiry', 'estimate_sent'] } },
       data: {
         column: 'estimate_sent',
-        columnChangedAt: new Date(),
+        columnChangedAt: now,
         position: await nextPosition('estimate_sent', tx),
-        quotedPence: totals.gross,
-        quotedAt: new Date(),
-        quoteNotes: notes || null,
+        waitingReason: null,
+        waitingUntil: null,
       },
     });
 
     return created.id;
   });
+  // Already sent by the first of a double-submit: land where it landed.
+  if (!estimateId) redirect(`/admin/board/${jobId}`);
 
   // Committed. Now, and only now, tell the owner.
-  await sendEstimateEmail(estimateId);
+  const sent = await sendEstimateEmail(estimateId);
 
   revalidatePath('/admin/board');
-  redirect(`/admin/board/${jobId}?sent=1`);
+  redirect(`/admin/board/${jobId}?sent=${emailFlag(sent)}`);
 }
 
 /**
@@ -199,17 +294,19 @@ export async function sendEstimate(jobId: string, formData: FormData): Promise<v
  * This is a first-class path, not a fallback (§3.5). The app records what
  * actually happened; it never forces an owner online to make the record
  * tidy. Every decision stores HOW it was made, which is the evidence trail
- * that stops the argument in March.
+ * that stops the argument in March. 'link' is not one of the choices here:
+ * only the owner's own link can record that.
  */
 export async function recordEstimateDecision(
   estimateId: string,
   formData: FormData,
 ): Promise<void> {
   await requireAdmin();
+  if (!isId(estimateId)) throw new Error('Bad request.');
 
   const accepted = String(formData.get('decision') ?? '') === 'accepted';
   const rawVia = String(formData.get('decidedVia') ?? 'phone');
-  const via = isDecidedVia(rawVia) ? rawVia : 'phone';
+  const via = isDecidedVia(rawVia) && rawVia !== 'link' ? rawVia : 'phone';
   const note = String(formData.get('decisionNote') ?? '').trim().slice(0, 500);
 
   const estimate = await prisma.estimate.findUnique({
@@ -232,6 +329,7 @@ export async function recordEstimateDecision(
   });
 
   if (count === 1 && accepted) await bookAcceptedEstimate(estimate.bookingId, estimate.totalPence);
+  if (count === 1 && !accepted) await releaseEstimateSentCard(estimate.bookingId);
 
   revalidatePath('/admin/board');
   redirect(`/admin/board/${estimate.bookingId}`);
@@ -243,35 +341,60 @@ export async function recordEstimateDecision(
  * Three fields, because it is typed one-handed in an engine bay with the
  * thing still in shot. Anything longer gets written on a hand instead and
  * argued about in March.
+ *
+ * Not on an invoiced or paid job: it could never be billed, and the owner
+ * would be told it would be. The job row is claimed with that rule in the
+ * WHERE -- issueInvoice claims the same row, so the two cannot interleave.
  */
 export async function raiseVariation(jobId: string, formData: FormData): Promise<void> {
   await requireAdmin();
+  if (!isId(jobId)) throw new Error('Bad request.');
 
   const description = String(formData.get('description') ?? '').trim().slice(0, 300);
   const reason = String(formData.get('reason') ?? '').trim().slice(0, 500);
   const estimatePence = poundsToPence(String(formData.get('amount') ?? ''));
+  const formNonce = readNonce(formData);
 
-  if (!description || estimatePence == null) {
+  // £0 is not extra work worth asking an owner about.
+  if (!description || !estimatePence) {
     redirect(`/admin/board/${jobId}?error=variation#variation`);
   }
 
-  const variation = await prisma.variation.create({
-    data: {
-      bookingId: jobId,
-      description,
-      reason: reason || null,
-      estimatePence,
-      status: 'awaiting_owner',
-      token: generateRebookToken(),
-    },
-    select: { id: true },
-  });
+  let variationId: string | null;
+  try {
+    variationId = await prisma.$transaction(async (tx) => {
+      const open = await tx.booking.updateMany({
+        where: { id: jobId, column: { notIn: LOCKED_COLUMNS } },
+        data: { updatedAt: new Date() },
+      });
+      if (open.count === 0) return null;
 
-  await sendVariationEmail(variation.id);
+      const created = await tx.variation.create({
+        data: {
+          bookingId: jobId,
+          description,
+          reason: reason || null,
+          estimatePence,
+          status: 'awaiting_owner',
+          token: generateRebookToken(),
+          formNonce,
+        },
+        select: { id: true },
+      });
+      return created.id;
+    });
+  } catch (e) {
+    // The same form twice: the first one raised it and emailed. Done.
+    if (isDuplicateNonce(e)) redirect(`/admin/board/${jobId}#variation`);
+    throw e;
+  }
+  if (!variationId) redirect(`/admin/board/${jobId}?error=variation_locked#variation`);
+
+  const sent = await sendVariationEmail(variationId);
 
   revalidatePath('/admin/board');
   revalidatePath(`/admin/board/${jobId}`);
-  redirect(`/admin/board/${jobId}?raised=1`);
+  redirect(`/admin/board/${jobId}?raised=${emailFlag(sent)}#variation`);
 }
 
 /** The same "agreed by phone" path, for extra work. */
@@ -280,10 +403,11 @@ export async function recordVariationDecision(
   formData: FormData,
 ): Promise<void> {
   await requireAdmin();
+  if (!isId(variationId)) throw new Error('Bad request.');
 
   const decision = String(formData.get('decision') ?? '');
   const rawVia = String(formData.get('decidedVia') ?? 'phone');
-  const via = isDecidedVia(rawVia) ? rawVia : 'phone';
+  const via = isDecidedVia(rawVia) && rawVia !== 'link' ? rawVia : 'phone';
   const note = String(formData.get('decisionNote') ?? '').trim().slice(0, 500);
 
   const status =
@@ -296,7 +420,12 @@ export async function recordVariationDecision(
   if (!variation) redirect('/admin/board');
 
   await prisma.variation.updateMany({
-    where: { id: variationId, status: 'awaiting_owner' },
+    where: {
+      id: variationId,
+      status: 'awaiting_owner',
+      // An approval after invoicing could never be billed.
+      ...(status === 'approved' ? { booking: { column: { notIn: LOCKED_COLUMNS } } } : {}),
+    },
     data: {
       status,
       decidedAt: new Date(),
@@ -315,8 +444,7 @@ export async function recordVariationDecision(
 // F4 — waiting on other people
 // ---------------------------------------------------------------------------
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const TIME_RE = /^\d{2}:\d{2}$/;
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /**
  * A part on order. The ETA is the useful field: it is what turns "waiting on
@@ -324,6 +452,7 @@ const TIME_RE = /^\d{2}:\d{2}$/;
  */
 export async function addPartOrder(jobId: string, formData: FormData): Promise<void> {
   await requireAdmin();
+  if (!isId(jobId)) throw new Error('Bad request.');
 
   const item = String(formData.get('item') ?? '').trim().slice(0, 200);
   if (!item) redirect(`/admin/board/${jobId}?error=part#parts`);
@@ -332,16 +461,21 @@ export async function addPartOrder(jobId: string, formData: FormData): Promise<v
   const etaOn = String(formData.get('etaOn') ?? '').trim();
   const cost = poundsToPence(String(formData.get('cost') ?? ''));
 
-  await prisma.partOrder.create({
-    data: {
-      bookingId: jobId,
-      item,
-      supplier: supplier || null,
-      orderedOn: todayInLondon(),
-      etaOn: DATE_RE.test(etaOn) ? etaOn : null,
-      costPence: cost,
-    },
-  });
+  try {
+    await prisma.partOrder.create({
+      data: {
+        bookingId: jobId,
+        item,
+        supplier: supplier || null,
+        orderedOn: todayInLondon(),
+        etaOn: isLondonDate(etaOn) ? etaOn : null,
+        costPence: cost,
+        formNonce: readNonce(formData),
+      },
+    });
+  } catch (e) {
+    if (!isDuplicateNonce(e)) throw e;
+  }
 
   revalidatePath(`/admin/board/${jobId}`);
   redirect(`/admin/board/${jobId}#parts`);
@@ -355,6 +489,7 @@ export async function addPartOrder(jobId: string, formData: FormData): Promise<v
  */
 export async function markPartArrived(partId: string, jobId: string): Promise<void> {
   await requireAdmin();
+  if (!isId(partId) || !isId(jobId)) throw new Error('Bad request.');
 
   await prisma.partOrder.updateMany({
     where: { id: partId, arrivedOn: null },
@@ -365,15 +500,22 @@ export async function markPartArrived(partId: string, jobId: string): Promise<vo
   redirect(`/admin/board/${jobId}#parts`);
 }
 
-/** Put a day in the diary for this job. */
+/**
+ * Put a day in the diary for this job.
+ *
+ * A day in the diary makes the card Booked only if the owner has agreed a
+ * price. A visit to look at the boat before pricing it is still an enquiry;
+ * calling it booked would tell the owner page something nobody agreed to.
+ */
 export async function planVisit(jobId: string, formData: FormData): Promise<void> {
   await requireAdmin();
+  if (!isId(jobId)) throw new Error('Bad request.');
 
   const date = String(formData.get('date') ?? '').trim();
   const time = String(formData.get('time') ?? '').trim() || '09:00';
   const placeId = String(formData.get('placeId') ?? '').trim();
 
-  if (!DATE_RE.test(date) || !TIME_RE.test(time)) {
+  if (!isLondonDate(date) || !TIME_RE.test(time)) {
     redirect(`/admin/board/${jobId}?error=visit#visits`);
   }
 
@@ -382,19 +524,28 @@ export async function planVisit(jobId: string, formData: FormData): Promise<void
     select: { placeId: true },
   });
 
-  await prisma.visit.create({
-    data: {
-      bookingId: jobId,
-      placeId: placeId || job?.placeId || null,
-      startsAt: londonDateTimeToUtc(date, time),
-      status: 'planned',
-    },
-  });
+  try {
+    await prisma.visit.create({
+      data: {
+        bookingId: jobId,
+        placeId: placeId || job?.placeId || null,
+        startsAt: londonDateTimeToUtc(date, time),
+        status: 'planned',
+        formNonce: readNonce(formData),
+      },
+    });
+  } catch (e) {
+    if (isDuplicateNonce(e)) redirect(`/admin/board/${jobId}#visits`);
+    throw e;
+  }
 
-  // A job with a day in the diary is planned work, and the card should say so.
   await prisma.booking.updateMany({
-    where: { id: jobId, column: { in: ['enquiry', 'estimate_sent'] } },
-    data: { column: 'booked', columnChangedAt: new Date(), plannedOn: date },
+    where: {
+      id: jobId,
+      column: { in: ['enquiry', 'estimate_sent'] },
+      estimates: { some: { status: 'accepted' } },
+    },
+    data: { column: 'booked', columnChangedAt: new Date(), position: await nextPosition('booked') },
   });
   await prisma.booking.update({ where: { id: jobId }, data: { plannedOn: date } });
 
@@ -405,6 +556,7 @@ export async function planVisit(jobId: string, formData: FormData): Promise<void
 /** Work happened. */
 export async function markVisitDone(visitId: string, jobId: string): Promise<void> {
   await requireAdmin();
+  if (!isId(visitId) || !isId(jobId)) throw new Error('Bad request.');
 
   await prisma.visit.updateMany({
     where: { id: visitId, status: 'planned' },
@@ -435,6 +587,7 @@ export async function postponeVisit(
   formData: FormData,
 ): Promise<void> {
   await requireAdmin();
+  if (!isId(visitId) || !isId(jobId)) throw new Error('Bad request.');
 
   const rawReason = String(formData.get('postponeReason') ?? '').trim();
   if (!isPostponeReason(rawReason)) {
@@ -443,7 +596,7 @@ export async function postponeVisit(
 
   const note = String(formData.get('postponeNote') ?? '').trim().slice(0, 500);
   const rawNewDate = String(formData.get('newDate') ?? '').trim();
-  const newDate = DATE_RE.test(rawNewDate) ? rawNewDate : null;
+  const newDate = isLondonDate(rawNewDate) ? rawNewDate : null;
   const newTime = String(formData.get('newTime') ?? '').trim() || '09:00';
 
   const visit = await prisma.visit.findUnique({
@@ -476,10 +629,10 @@ export async function postponeVisit(
   });
 
   // Committed. Now tell them.
-  await sendVisitPostponedEmail(visitId, newDate);
+  const sent = await sendVisitPostponedEmail(visitId, newDate);
 
   revalidatePath('/admin/board');
-  redirect(`/admin/board/${jobId}?postponed=1#visits`);
+  redirect(`/admin/board/${jobId}?postponed=${emailFlag(sent)}#visits`);
 }
 
 // ---------------------------------------------------------------------------
@@ -492,22 +645,26 @@ export async function postponeVisit(
  */
 export async function issueInvoiceAction(jobId: string): Promise<void> {
   await requireAdmin();
+  if (!isId(jobId)) throw new Error('Bad request.');
 
   const result = await issueInvoice(jobId);
   if (!result.ok) {
     redirect(`/admin/board/${jobId}?error=${result.reason}#invoice`);
   }
 
-  await sendInvoiceEmail(result.invoiceId);
+  const sent = await sendInvoiceEmail(result.invoiceId);
 
   revalidatePath('/admin/board');
   revalidatePath('/admin/invoices');
-  redirect(`/admin/board/${jobId}?invoiced=${encodeURIComponent(result.number)}#invoice`);
+  redirect(
+    `/admin/board/${jobId}?invoiced=${encodeURIComponent(result.number)}&emailed=${emailFlag(sent)}#invoice`,
+  );
 }
 
 /** Void it. Its number is burned, and the card goes back to Done. */
 export async function voidInvoiceAction(invoiceId: string, jobId: string): Promise<void> {
   await requireAdmin();
+  if (!isId(invoiceId) || !isId(jobId)) throw new Error('Bad request.');
   await voidInvoice(invoiceId);
   revalidatePath('/admin/board');
   revalidatePath('/admin/invoices');
@@ -525,6 +682,7 @@ export async function markInvoicePaidAction(
   formData: FormData,
 ): Promise<void> {
   await requireAdmin();
+  if (!isId(invoiceId) || !isId(jobId)) throw new Error('Bad request.');
 
   const raw = String(formData.get('paidVia') ?? 'bank');
   // 'link' is Stripe's, and only the webhook may claim a payment came that way.

@@ -37,6 +37,8 @@ const BOAT_INCLUDE = {
       partOrders: { orderBy: { item: 'asc' } },
       estimates: { orderBy: { createdAt: 'desc' } },
       invoices: { orderBy: { issuedOn: 'desc' } },
+      // When the work was actually done, for workDate().
+      visits: { where: { status: 'done' }, orderBy: { startsAt: 'desc' }, select: { startsAt: true } },
     },
   },
 } as const;
@@ -133,12 +135,38 @@ export function describeEquipment(
 }
 
 /**
- * The date a job's work is recorded against: when it landed in a finished
- * column. Not createdAt -- a job jotted in March and done in October is an
- * October job, and that is the date an insurer reads.
+ * The date a job's work is recorded against: when the work was DONE. Not
+ * createdAt -- a job jotted in March and done in October is an October job,
+ * and that is the date an insurer reads. And not the last column move either:
+ * being paid in December does not make it December's work.
+ *
+ * The last visit marked done, else the first invoice (issued when the work
+ * finished), else the day it landed in its finished column.
  */
-export function workDate(job: { columnChangedAt: Date }): LondonDate {
-  return londonDateString(job.columnChangedAt);
+export function workDate(job: {
+  columnChangedAt: Date;
+  visits?: { startsAt: Date }[];
+  invoices?: { issuedOn: string; status: string }[];
+}): LondonDate {
+  const visit = job.visits?.[0];
+  if (visit) return londonDateString(visit.startsAt);
+  const issued = job.invoices?.filter((i) => i.status !== 'void').map((i) => i.issuedOn).sort()[0];
+  return issued ?? londonDateString(job.columnChangedAt);
+}
+
+/**
+ * What the owner's "Work we've done" lists for a job: the lines ticked off,
+ * plus the extra work they approved. Leaving the approved extras out is
+ * leaving out the bit they had to say yes to.
+ */
+export function workDoneItems(job: {
+  lineItems: { description: string; done: boolean }[];
+  variations: { description: string; status: string }[];
+}): string[] {
+  return [
+    ...job.lineItems.filter((l) => l.done).map((l) => l.description),
+    ...job.variations.filter((v) => v.status === 'approved').map((v) => v.description),
+  ];
 }
 
 /**

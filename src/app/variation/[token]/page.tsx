@@ -5,10 +5,12 @@ import { PublicShell } from '@/components/public-shell';
 import { Plate } from '@/components/ui/plate';
 import { formatPence } from '@/lib/money';
 import { decideVariation } from '@/app/variation/[token]/actions';
+import { DECISION_LINK_DAYS, decisionCutoff } from '@/app/estimate/[token]/expiry';
+import { workingTotals } from '@/lib/estimates';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = { title: 'Extra work' };
+export const metadata: Metadata = { title: 'Extra work — Harbourside Marine Services' };
 
 /**
  * Extra work found once the boat was open. Yes or no, on a phone, in a car
@@ -33,6 +35,11 @@ export default async function VariationPage(props: PageProps<'/variation/[token]
 
   const business = await prisma.operator.findFirst();
   if (!business) notFound();
+  const expired = variation.createdAt <= decisionCutoff();
+  // VAT follows registration at the moment a price is shown, and the invoice
+  // bills it that way (lib/invoices.ts), so the owner sees it here -- and
+  // the word VAT appears nowhere when the business is not registered.
+  const price = workingTotals([{ amountPence: variation.estimatePence }], business.vatRegistered);
 
   return (
     <PublicShell business={business} width="narrow">
@@ -48,14 +55,26 @@ export default async function VariationPage(props: PageProps<'/variation/[token]
 
         <div className="mt-4 flex items-baseline justify-between border-t border-divider pt-3">
           <span className="k">Estimated cost</span>
-          <span className="numeric text-2xl">{formatPence(variation.estimatePence)}</span>
+          <span className="numeric text-2xl">{formatPence(price.gross)}</span>
         </div>
+        {price.vat !== null && (
+          <p className="mt-1 text-right text-[12.5px] muted">
+            includes {formatPence(price.vat)} VAT
+          </p>
+        )}
       </Plate>
 
       <p className="mt-4 text-[15px] font-semibold">Nothing happens until you say so.</p>
 
+      {expired ? (
+        <p className="mt-6 border-l-2 border-accent-700 bg-neutral-100 p-3 text-[15px]">
+          <strong>This has expired.</strong> We ask for an answer within {DECISION_LINK_DAYS} days,
+          so ring us on {business.phone} and we will sort it out.
+        </p>
+      ) : (
       <div className="mt-6 space-y-3">
         <form action={decideVariation.bind(null, token)}>
+          <input type="hidden" name="id" value={variation.id} />
           <input type="hidden" name="decision" value="approve" />
           <button
             type="submit"
@@ -66,6 +85,7 @@ export default async function VariationPage(props: PageProps<'/variation/[token]
         </form>
 
         <form action={decideVariation.bind(null, token)}>
+          <input type="hidden" name="id" value={variation.id} />
           <input type="hidden" name="decision" value="decline" />
           <button
             type="submit"
@@ -75,6 +95,7 @@ export default async function VariationPage(props: PageProps<'/variation/[token]
           </button>
         </form>
       </div>
+      )}
 
       <p className="mt-6 text-[13px] muted">
         Rather talk first? Ring {business.phone}.

@@ -20,6 +20,8 @@ import { PrismaClient } from '@prisma/client';
 // Relative imports, not the "@/" alias: tsx runs this outside Next's resolver.
 import { addDays, addMonths, addYears, todayInLondon, londonDateTimeToUtc } from '../src/lib/time';
 import { generateBookingReference, generateRebookToken } from '../src/lib/reference';
+import { lineAmountPence } from '../src/lib/estimates';
+import { dedupeKeyFor } from '../src/lib/due-work';
 
 const prisma = new PrismaClient();
 
@@ -135,6 +137,7 @@ async function clear() {
   await prisma.visit.deleteMany();
   await prisma.partOrder.deleteMany();
   await prisma.variation.deleteMany();
+  await prisma.estimateLine.deleteMany();
   await prisma.estimate.deleteMany();
   await prisma.quoteLineItem.deleteMany();
   await prisma.sessionCancellation.deleteMany();
@@ -173,6 +176,8 @@ async function main() {
       nextInvoiceNumber: 4, // three invoices are seeded below
       paymentTermsDays: 14,
       bankDetailsText: 'Harbourside Marine Services · Sort 12-34-56 · Acct 12345678',
+      // A UK invoice needs the seller's address.
+      address: 'Unit 4, Harbour Yard\nBosham Lane, Chichester PO18 8QF',
     },
   });
 
@@ -379,7 +384,8 @@ async function main() {
     vessel: 'bramble', column: 'waiting', title: 'Alternator not charging',
     waitingReason: 'parts', waitingUntil: addDays(TODAY, 4), daysInColumn: 5,
   });
-  await job({ vessel: 'tamarisk', column: 'waiting', title: 'Rudder bearing play — estimate sent, owner deciding', waitingReason: 'owner_decision', waitingUntil: addDays(TODAY, 2), daysInColumn: 6, quotedPence: p(980) });
+  // Says "estimate sent", so it has one (lines and a sent estimate below).
+  const waitTamarisk = await job({ vessel: 'tamarisk', column: 'waiting', title: 'Rudder bearing play — estimate sent, owner deciding', waitingReason: 'owner_decision', waitingUntil: addDays(TODAY, 2), daysInColumn: 6, quotedPence: p(980) });
   await job({ vessel: 'sirocco', column: 'waiting', title: 'Antifoul and anodes', waitingReason: 'yard_lift', waitingUntil: addDays(TODAY, 8), daysInColumn: 3 });
   await job({ vessel: 'petrel', column: 'waiting', title: 'Topsides polish', waitingReason: 'weather', waitingUntil: addDays(TODAY, 1), daysInColumn: 4 });
   await job({ vessel: 'pipit', column: 'waiting', title: 'Log impeller — needs the tide to get alongside', waitingReason: 'tide', waitingUntil: addDays(TODAY, 2), daysInColumn: 2, place: 'itchenor' });
@@ -422,7 +428,7 @@ async function main() {
           qty: r.qty,
           unitPricePence: r.unit,
           // The one place a line total is computed. Stored, never re-derived.
-          amountPence: Math.round(r.qty * r.unit),
+          amountPence: lineAmountPence(r.qty, r.unit),
           done: r.done ?? false,
           sortOrder: i,
         },
@@ -468,6 +474,10 @@ async function main() {
     { kind: 'labour', description: 'Winterise engine and freshwater system', qty: 3, unit: LABOUR, done: true },
     { kind: 'parts', description: 'Antifreeze and inhibitor', qty: 1, unit: p(130), done: true },
   ]);
+  await lines(waitTamarisk.id, [
+    { kind: 'parts', description: 'Rudder bearing kit, upper and lower', qty: 1, unit: p(540) },
+    { kind: 'labour', description: 'Drop rudder, replace bearings, refit', qty: 8, unit: LABOUR },
+  ]);
   await lines(bookedSalt.id, [
     { kind: 'labour', description: 'Engine service', qty: 4, unit: LABOUR },
     { kind: 'parts', description: 'Impeller and filters', qty: 1, unit: p(120) },
@@ -507,6 +517,16 @@ async function main() {
   });
   await prisma.estimate.create({
     data: {
+      bookingId: waitTamarisk.id,
+      status: 'sent',
+      totalPence: p(980),
+      notes: 'Assumes the rudder drops without a fight. Time and materials beyond that.',
+      sentAt: londonDateTimeToUtc(addDays(TODAY, -6), '17:00'),
+      token: generateRebookToken(),
+    },
+  });
+  await prisma.estimate.create({
+    data: {
       bookingId: bookedSalt.id,
       status: 'accepted',
       totalPence: p(340),
@@ -526,6 +546,24 @@ async function main() {
       decisionNote: 'Rang back first thing — go ahead, wants it done before the weather turns.',
     },
   });
+
+  // What each owner was shown, frozen at send (EstimateLine). The seeded
+  // estimates were sent from the lines above, unchanged since.
+  for (const e of await prisma.estimate.findMany({ select: { id: true, bookingId: true } })) {
+    const src = await prisma.quoteLineItem.findMany({ where: { bookingId: e.bookingId }, orderBy: { sortOrder: 'asc' } });
+    await prisma.estimateLine.createMany({
+      data: src.map((l) => ({
+        estimateId: e.id,
+        kind: l.kind,
+        description: l.description,
+        qty: l.qty,
+        unitPricePence: l.unitPricePence,
+        amountPence: l.amountPence,
+        vatRateBps: 0, // not VAT-registered
+        sortOrder: l.sortOrder,
+      })),
+    });
+  }
 
   // -------------------------------------------------------------------------
   // Variations. §8: one awaiting the owner, one approved by link, one agreed
@@ -646,7 +684,7 @@ async function main() {
     // total, and two of three invoices disagreed with their own lines (£476 of
     // lines against a stated £486) -- the exact document an owner disputes.
     // npm run check now fails if any invoice's total drifts from its lines.
-    const totalPence = input.rows.reduce((n, r) => n + Math.round(r.qty * r.unit), 0);
+    const totalPence = input.rows.reduce((n, r) => n + lineAmountPence(r.qty, r.unit), 0);
     const inv = await prisma.invoice.create({
       data: {
         operatorId: op.id,
@@ -668,7 +706,10 @@ async function main() {
           description: r.description,
           qty: r.qty,
           unitPricePence: r.unit,
-          amountPence: Math.round(r.qty * r.unit),
+          amountPence: lineAmountPence(r.qty, r.unit),
+          // Every seeded labour row is at the labour rate, so a printed "x 4"
+          // can say "hrs".
+          kind: r.unit === LABOUR ? 'labour' : 'parts',
           sortOrder: i,
         },
       });
@@ -741,15 +782,21 @@ async function main() {
   ];
 
   for (const [i, r] of dueThisMonth.entries()) {
+    const key = {
+      vesselId: vessels[r.v],
+      equipmentId: (r.kind === 'rig_age' ? rigEquipment[r.v] : engineEquipment[r.v]) ?? null,
+      kind: r.kind,
+      // Spread across the coming fortnight so "due this month" is a real list.
+      dueOn: addDays(TODAY, i - 2),
+    };
     await prisma.reminder.create({
       data: {
-        vesselId: vessels[r.v],
-        equipmentId: r.kind === 'rig_age' ? rigEquipment[r.v] : engineEquipment[r.v],
-        kind: r.kind,
-        // Spread across the coming fortnight so "due this month" is a real list.
-        dueOn: addDays(TODAY, i - 2),
+        ...key,
         status: 'upcoming',
         message: r.msg,
+        // The same key the nightly sweep writes, so a sweep straight after
+        // seeding cannot create these twice.
+        dedupeKey: dedupeKeyFor(key),
       },
     });
   }
@@ -760,6 +807,7 @@ async function main() {
       vesselId: vessels.greylag,
       kind: 'winterise',
       dueOn: addDays(TODAY, -6),
+      dedupeKey: dedupeKeyFor({ vesselId: vessels.greylag, kind: 'winterise', equipmentId: null, dueOn: addDays(TODAY, -6) }),
       status: 'sent',
       sentAt: londonDateTimeToUtc(addDays(TODAY, -6), '07:00'),
       message: 'Winterisation — worth booking before the first hard frost.',

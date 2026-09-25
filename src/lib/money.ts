@@ -8,11 +8,9 @@ export function formatPence(pence: number): string {
   }).format(pence / 100);
 }
 
-/** 9500 -> "£95", 9550 -> "£95.50". For dense UI where trailing .00 is noise. */
+/** 9500 -> "£95", 124000 -> "£1,240", 9550 -> "£95.50". For dense UI where trailing .00 is noise. */
 export function formatPenceShort(pence: number): string {
-  return pence % 100 === 0
-    ? `£${pence / 100}`
-    : formatPence(pence);
+  return formatPence(pence).replace(/\.00$/, '');
 }
 
 /**

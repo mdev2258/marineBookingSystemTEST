@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { AdminShell } from '@/components/admin/shell';
 import { quickAdd } from '@/app/admin/board/actions';
 import { BoatField, PlaceField } from '@/components/admin/board/fields';
+import { OwnerFields } from '@/app/admin/board/[id]/sort/owner-fields';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,8 @@ export const metadata: Metadata = { title: 'Quick add — Harbourside Marine Ser
  * a card with a boat and no description is a better record than a scrap of
  * paper, so it saves either way.
  */
-export default async function QuickAddPage() {
+export default async function QuickAddPage(props: PageProps<'/admin/board/new'>) {
+  const params = await props.searchParams;
   const [vessels, places] = await Promise.all([
     prisma.vessel.findMany({ orderBy: { name: 'asc' }, select: { name: true } }),
     prisma.place.findMany({ orderBy: { sortOrder: 'asc' }, select: { id: true, name: true } }),
@@ -45,6 +47,8 @@ export default async function QuickAddPage() {
             className="mt-2 min-h-12 w-full border border-divider bg-bg px-3 text-[16px] outline-none focus:border-accent-700"
           />
         </div>
+
+        <OwnerFields error={params.error === 'owner'} />
 
         <PlaceField places={places} />
 

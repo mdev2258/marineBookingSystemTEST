@@ -1,12 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
 import { AdminShell } from '@/components/admin/shell';
 import { sortJot } from '@/app/admin/board/actions';
 import { BoatField, PlaceField } from '@/components/admin/board/fields';
 import { JOB_COLUMN, JOB_COLUMN_LABEL } from '@/lib/enums';
 import { cardTitle } from '@/lib/board';
+import { OwnerFields } from './owner-fields';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,16 +23,26 @@ export const metadata: Metadata = { title: 'Sort — Harbourside Marine Services
  */
 export default async function SortPage(props: PageProps<'/admin/board/[id]/sort'>) {
   const { id } = await props.params;
+  const params = await props.searchParams;
 
   const [job, vessels, places] = await Promise.all([
     prisma.booking.findUnique({
       where: { id },
-      select: { id: true, title: true, requestNotes: true, vessel: { select: { name: true } } },
+      select: {
+        id: true,
+        column: true,
+        title: true,
+        requestNotes: true,
+        vessel: { select: { name: true } },
+      },
     }),
     prisma.vessel.findMany({ orderBy: { name: 'asc' }, select: { name: true } }),
     prisma.place.findMany({ orderBy: { sortOrder: 'asc' }, select: { id: true, name: true } }),
   ]);
   if (!job) notFound();
+  // Only a jot gets sorted. Anything else -- sorted, invoiced, paid -- is
+  // already a job, and re-filing it as an enquiry would rewrite its history.
+  if (job.column !== 'jotted') redirect(`/admin/board/${job.id}`);
 
   return (
     <AdminShell>
@@ -61,21 +72,33 @@ export default async function SortPage(props: PageProps<'/admin/board/[id]/sort'
           />
         </div>
 
+        <OwnerFields error={params.error === 'owner'} />
+
         <PlaceField places={places} />
 
         <div>
           <label htmlFor="column" className="k">
             Where it goes
           </label>
+          {params.error === 'column' && (
+            <p id="column-error" role="alert" className="mt-2 text-[13.5px] font-semibold text-accent-800">
+              It can&rsquo;t go there yet.
+            </p>
+          )}
           <select
             id="column"
             name="column"
             defaultValue="enquiry"
+            aria-describedby={params.error === 'column' ? 'column-error' : undefined}
             className="mt-2 min-h-12 w-full border border-divider bg-bg px-3 text-[16px] outline-none focus:border-accent-700"
           >
             {/* Waiting is absent on purpose: it needs a reason, and that is
-                asked for on the card itself rather than smuggled in here. */}
-            {JOB_COLUMN.filter((c) => c !== 'jotted' && c !== 'waiting').map((c) => (
+                asked for on the card itself rather than smuggled in here.
+                Estimate sent and Invoiced are reached by sending the
+                document; a jot has neither behind it. */}
+            {JOB_COLUMN.filter(
+              (c) => c !== 'jotted' && c !== 'waiting' && c !== 'estimate_sent' && c !== 'invoiced',
+            ).map((c) => (
               <option key={c} value={c}>
                 {JOB_COLUMN_LABEL[c]}
               </option>
